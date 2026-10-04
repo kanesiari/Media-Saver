@@ -1,0 +1,6 @@
+{
+  "name": "MediaSave - Instagram & Threads Media Downloader",
+  "description": "Modern, clean public media utility for Instagram posts, reels, and Threads media. Fast, privacy-focused, and ready for deployment.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
