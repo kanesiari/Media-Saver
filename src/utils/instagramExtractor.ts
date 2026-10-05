@@ -329,7 +329,7 @@ export async function extractMediaFromPublicEmbed(
 
     const html = await res.text();
     const mediaList: ExtractedMedia[] = [];
-    let detectedContentType: 'reel' | 'post' | 'video' | 'photo' = 'photo';
+    let detectedContentType: 'reel' | 'post' | 'video' | 'photo' | 'carousel' = 'photo';
     let author: string | undefined;
     let caption: string | undefined;
 
@@ -382,30 +382,51 @@ export async function extractMediaFromPublicEmbed(
       searchIdx += 9;
     }
 
-    if (foundVideoUrls.length > 0) {
+    if (foundVideoUrls.length > 1) {
+      // Post contains MULTIPLE distinct videos (Video Carousel)
+      detectedContentType = 'carousel';
+      foundVideoUrls.forEach((vUrl, idx) => {
+        const slideNum = idx + 1;
+        const meta = detectVideoResolution(html, vUrl);
+        const filename = `instagram_${shortcode}_slide_${slideNum}.mp4`;
+        mediaList.push({
+          id: `slide_${slideNum}_video`,
+          slideIndex: slideNum,
+          type: 'video',
+          url: vUrl,
+          downloadUrl: `/api/download?url=${encodeURIComponent(vUrl)}&filename=${encodeURIComponent(filename)}`,
+          previewUrl: vUrl,
+          resolution: meta.resolution,
+          mimeType: 'video/mp4',
+          verified: true,
+          label: `Slide ${slideNum} (Video .mp4)`,
+          width: meta.width,
+          height: meta.height,
+          qualityOptions: [
+            {
+              id: `quality_slide_${slideNum}`,
+              label: '720p HD',
+              resolution: meta.resolution,
+              width: meta.width,
+              height: meta.height,
+              url: vUrl,
+              downloadUrl: `/api/download?url=${encodeURIComponent(vUrl)}&filename=${encodeURIComponent(filename)}`,
+              mimeType: 'video/mp4',
+              isDefault: true,
+            },
+          ],
+        });
+      });
+      // In a multi-video carousel, do not append an unrelated single cover photo
+    } else if (foundVideoUrls.length === 1) {
+      // Single Video post / Reel
       detectedContentType = 'video';
       const primaryVideoUrl = foundVideoUrls[0];
       const primaryMeta = detectVideoResolution(html, primaryVideoUrl);
       const filename = `instagram_${shortcode}.mp4`;
 
-      // Build quality options strictly and only for distinct media URLs actually obtained
-      const qualityOptions: VideoQualityOption[] = foundVideoUrls.map((vUrl, idx) => {
-        const meta = idx === 0 ? primaryMeta : detectVideoResolution(html, vUrl);
-        const isDefault = idx === 0;
-        return {
-          id: `quality_${idx}_${meta.shortLabel.replace(/[^a-zA-Z0-9]/g, '_')}`,
-          label: `${meta.shortLabel}${foundVideoUrls.length > 1 && isDefault ? ' (최고 화질/기본)' : ''}`,
-          resolution: meta.resolution,
-          width: meta.width,
-          height: meta.height,
-          url: vUrl,
-          downloadUrl: `/api/download?url=${encodeURIComponent(vUrl)}&filename=${encodeURIComponent(filename)}`,
-          mimeType: 'video/mp4',
-          isDefault,
-        };
-      });
-
       mediaList.push({
+        id: 'single_video',
         type: 'video',
         url: primaryVideoUrl,
         downloadUrl: `/api/download?url=${encodeURIComponent(primaryVideoUrl)}&filename=${encodeURIComponent(filename)}`,
@@ -416,28 +437,61 @@ export async function extractMediaFromPublicEmbed(
         label: 'Original Video (.mp4)',
         width: primaryMeta.width,
         height: primaryMeta.height,
-        qualityOptions,
+        qualityOptions: [
+          {
+            id: 'quality_single_720p',
+            label: '720p HD',
+            resolution: primaryMeta.resolution,
+            width: primaryMeta.width,
+            height: primaryMeta.height,
+            url: primaryVideoUrl,
+            downloadUrl: `/api/download?url=${encodeURIComponent(primaryVideoUrl)}&filename=${encodeURIComponent(filename)}`,
+            mimeType: 'video/mp4',
+            isDefault: true,
+          },
+        ],
       });
-    }
 
-    // 2. Check for high-res photo / cover
-    const imgMatch = html.match(/class="EmbeddedMediaImage"[^>]*src="([^"]+)"/i);
-    if (imgMatch) {
-      const cleanImgUrl = imgMatch[1].replace(/&amp;/g, '&');
-      const hostCheck = isAllowedMediaHost(cleanImgUrl);
-      if (hostCheck.allowed) {
-        const isCover = mediaList.length > 0;
-        const filename = `instagram_${shortcode}${isCover ? '_cover' : ''}.jpg`;
-        mediaList.push({
-          type: 'image',
-          url: cleanImgUrl,
-          downloadUrl: `/api/download?url=${encodeURIComponent(cleanImgUrl)}&filename=${encodeURIComponent(filename)}`,
-          previewUrl: cleanImgUrl,
-          resolution: isCover ? 'Video Cover / Poster' : 'High-Res Photo',
-          mimeType: 'image/jpeg',
-          verified: true,
-          label: isCover ? 'Video Cover Photo (.jpg)' : 'Original Photo (.jpg)',
-        });
+      // Check for high-res photo / cover for single video
+      const imgMatch = html.match(/class="EmbeddedMediaImage"[^>]*src="([^"]+)"/i);
+      if (imgMatch) {
+        const cleanImgUrl = imgMatch[1].replace(/&amp;/g, '&');
+        const hostCheck = isAllowedMediaHost(cleanImgUrl);
+        if (hostCheck.allowed) {
+          const coverFilename = `instagram_${shortcode}_cover.jpg`;
+          mediaList.push({
+            id: 'single_cover',
+            type: 'image',
+            url: cleanImgUrl,
+            downloadUrl: `/api/download?url=${encodeURIComponent(cleanImgUrl)}&filename=${encodeURIComponent(coverFilename)}`,
+            previewUrl: cleanImgUrl,
+            resolution: 'Video Cover / Poster',
+            mimeType: 'image/jpeg',
+            verified: true,
+            label: 'Video Cover Photo (.jpg)',
+          });
+        }
+      }
+    } else {
+      // 2. Check for high-res photo when no video was found
+      const imgMatch = html.match(/class="EmbeddedMediaImage"[^>]*src="([^"]+)"/i);
+      if (imgMatch) {
+        const cleanImgUrl = imgMatch[1].replace(/&amp;/g, '&');
+        const hostCheck = isAllowedMediaHost(cleanImgUrl);
+        if (hostCheck.allowed) {
+          const filename = `instagram_${shortcode}.jpg`;
+          mediaList.push({
+            id: 'single_photo',
+            type: 'image',
+            url: cleanImgUrl,
+            downloadUrl: `/api/download?url=${encodeURIComponent(cleanImgUrl)}&filename=${encodeURIComponent(filename)}`,
+            previewUrl: cleanImgUrl,
+            resolution: 'High-Res Photo',
+            mimeType: 'image/jpeg',
+            verified: true,
+            label: 'Original Photo (.jpg)',
+          });
+        }
       }
     }
 
