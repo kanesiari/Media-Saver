@@ -5,8 +5,72 @@
  * and direct raw binary extraction for third-party posts is not provided by Meta.
  */
 
-import { AnalysisResponse, ExtractedMedia } from '../types';
+import { AnalysisResponse, ExtractedMedia, VideoQualityOption } from '../types';
 import { isAllowedMediaHost } from './mediaDownloader';
+
+/**
+ * Accurately detects video resolution from surrounding dimensions metadata or URL parameters.
+ * If dimensions cannot be verified, returns '해상도 확인 불가'.
+ */
+export function detectVideoResolution(
+  html: string,
+  videoUrl: string
+): { width?: number; height?: number; resolution: string; shortLabel: string } {
+  let width: number | undefined;
+  let height: number | undefined;
+
+  // 1. Try matching dimensions in JSON
+  const dimMatch =
+    html.match(/\\"dimensions\\":\{\\"height\\":(\d+),\\"width\\":(\d+)\}/) ||
+    html.match(/"dimensions":\{"height":(\d+),"width":(\d+)\}/);
+  if (dimMatch) {
+    height = parseInt(dimMatch[1], 10);
+    width = parseInt(dimMatch[2], 10);
+  }
+
+  // 2. Check efg query parameter in URL (e.g. 720, 1080)
+  let efgTag: string | null = null;
+  try {
+    const parsed = new URL(videoUrl);
+    const efg = parsed.searchParams.get('efg');
+    if (efg) {
+      const rawDecoded = decodeURIComponent(efg);
+      let decodedStr = '';
+      if (typeof atob === 'function') {
+        decodedStr = atob(rawDecoded);
+      } else if (typeof Buffer !== 'undefined') {
+        decodedStr = Buffer.from(rawDecoded, 'base64').toString('utf8');
+      }
+      const tagMatch = decodedStr.match(/\.(\d{3,4})\./);
+      if (tagMatch) {
+        efgTag = `${tagMatch[1]}p`;
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  if (width && height) {
+    const minDim = Math.min(width, height);
+    const maxDim = Math.max(width, height);
+    if (minDim >= 1080 || maxDim >= 1920) {
+      return { width, height, resolution: `1080p Full HD (${width}×${height})`, shortLabel: '1080p Full HD' };
+    }
+    if (minDim >= 720 || maxDim >= 1280 || efgTag === '720p') {
+      return { width, height, resolution: `720p HD (${width}×${height})`, shortLabel: '720p HD' };
+    }
+    if (minDim >= 480) {
+      return { width, height, resolution: `480p SD (${width}×${height})`, shortLabel: '480p SD' };
+    }
+    return { width, height, resolution: `${minDim}p (${width}×${height})`, shortLabel: `${minDim}p` };
+  }
+
+  if (efgTag) {
+    return { resolution: `${efgTag} HD`, shortLabel: `${efgTag} HD` };
+  }
+
+  return { resolution: '해상도 확인 불가', shortLabel: '해상도 확인 불가' };
+}
 
 /**
  * Validates and extracts shortcode from Instagram and Threads URLs
@@ -119,31 +183,59 @@ export async function extractMediaFromPublicEmbed(
         .trim();
     }
 
-    // 1. Check for video_url
-    const videoIdx = html.indexOf('video_url');
-    if (videoIdx !== -1) {
-      const sub = html.slice(videoIdx);
+    // 1. Search for all video_url occurrences in HTML
+    const foundVideoUrls: string[] = [];
+    let searchIdx = 0;
+    while ((searchIdx = html.indexOf('video_url', searchIdx)) !== -1) {
+      const sub = html.slice(searchIdx);
       const start = sub.indexOf('https');
       const end = sub.indexOf('\\"', start);
       if (start !== -1 && end !== -1) {
         const rawChunk = sub.slice(start, end);
         const cleanVideoUrl = rawChunk.replace(/\\\//g, '/').replace(/\\/g, '');
         const hostCheck = isAllowedMediaHost(cleanVideoUrl);
-        if (hostCheck.allowed) {
-          detectedContentType = 'video';
-          const filename = `instagram_${shortcode}.mp4`;
-          mediaList.push({
-            type: 'video',
-            url: cleanVideoUrl,
-            downloadUrl: `/api/download?url=${encodeURIComponent(cleanVideoUrl)}&filename=${encodeURIComponent(filename)}`,
-            previewUrl: cleanVideoUrl,
-            resolution: '720p HD',
-            mimeType: 'video/mp4',
-            verified: true,
-            label: 'Original Video (.mp4)',
-          });
+        if (hostCheck.allowed && !foundVideoUrls.includes(cleanVideoUrl)) {
+          foundVideoUrls.push(cleanVideoUrl);
         }
       }
+      searchIdx += 9;
+    }
+
+    if (foundVideoUrls.length > 0) {
+      detectedContentType = 'video';
+      const primaryVideoUrl = foundVideoUrls[0];
+      const primaryMeta = detectVideoResolution(html, primaryVideoUrl);
+      const filename = `instagram_${shortcode}.mp4`;
+
+      const qualityOptions: VideoQualityOption[] = foundVideoUrls.map((vUrl, idx) => {
+        const meta = idx === 0 ? primaryMeta : detectVideoResolution(html, vUrl);
+        const isDefault = idx === 0;
+        return {
+          id: `quality_${idx}`,
+          label: `${meta.shortLabel}${isDefault ? ' (최고 화질/기본)' : ''}`,
+          resolution: meta.resolution,
+          width: meta.width,
+          height: meta.height,
+          url: vUrl,
+          downloadUrl: `/api/download?url=${encodeURIComponent(vUrl)}&filename=${encodeURIComponent(filename)}`,
+          mimeType: 'video/mp4',
+          isDefault,
+        };
+      });
+
+      mediaList.push({
+        type: 'video',
+        url: primaryVideoUrl,
+        downloadUrl: `/api/download?url=${encodeURIComponent(primaryVideoUrl)}&filename=${encodeURIComponent(filename)}`,
+        previewUrl: primaryVideoUrl,
+        resolution: primaryMeta.resolution,
+        mimeType: 'video/mp4',
+        verified: true,
+        label: 'Original Video (.mp4)',
+        width: primaryMeta.width,
+        height: primaryMeta.height,
+        qualityOptions,
+      });
     }
 
     // 2. Check for high-res photo / cover

@@ -35,11 +35,13 @@ export const MediaPreviewSection: React.FC<MediaPreviewSectionProps> = ({
   const [copiedEmbed, setCopiedEmbed] = useState(false);
   const [downloadingItemUrl, setDownloadingItemUrl] = useState<string | null>(null);
   const [downloadMessage, setDownloadMessage] = useState<string | null>(null);
+  const [selectedQualityByItem, setSelectedQualityByItem] = useState<Record<number, string>>({});
 
   useEffect(() => {
     setIframeLoaded(false);
     setLoadTimedOut(false);
     setDownloadMessage(null);
+    setSelectedQualityByItem({});
 
     if (analysisData?.embedUrl) {
       const timer = setTimeout(() => {
@@ -66,8 +68,16 @@ export const MediaPreviewSection: React.FC<MediaPreviewSectionProps> = ({
     }
   };
 
-  const handleFileDownload = async (item: ExtractedMedia) => {
-    const downloadTarget = item.downloadUrl || item.url;
+  const handleFileDownload = async (item: ExtractedMedia, itemIndex = 0) => {
+    let downloadTarget = item.downloadUrl || item.url;
+
+    // If video has multiple quality options, retrieve user selected stream
+    if (item.type === 'video' && item.qualityOptions && item.qualityOptions.length > 0) {
+      const selectedId = selectedQualityByItem[itemIndex] || item.qualityOptions[0].id;
+      const matchedQuality = item.qualityOptions.find((q) => q.id === selectedId) || item.qualityOptions[0];
+      downloadTarget = matchedQuality.downloadUrl || matchedQuality.url;
+    }
+
     const defaultFilename = `MediaSave_${analysisData?.platform || 'instagram'}_${analysisData?.shortcode || Date.now()}.${item.type === 'video' ? 'mp4' : 'jpg'}`;
 
     setDownloadingItemUrl(item.url);
@@ -339,33 +349,79 @@ export const MediaPreviewSection: React.FC<MediaPreviewSectionProps> = ({
                         {analysisData.mediaList.map((item, idx) => (
                           <div
                             key={idx}
-                            className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs flex items-center justify-between gap-3"
+                            className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs space-y-3"
                           >
-                            <div className="flex items-center gap-3">
-                              {item.type === 'video' ? (
-                                <Film className="w-5 h-5 text-purple-600 shrink-0" />
-                              ) : (
-                                <ImageIcon className="w-5 h-5 text-blue-600 shrink-0" />
-                              )}
-                              <div>
-                                <span className="text-xs font-bold text-slate-800 block">
-                                  {item.label || (item.type === 'video' ? 'Video File' : 'Photo File')}
-                                </span>
-                                <span className="text-[11px] text-slate-400">
-                                  {item.resolution} {item.mimeType ? `· ${item.mimeType}` : ''}
-                                </span>
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="flex items-center gap-3">
+                                {item.type === 'video' ? (
+                                  <Film className="w-5 h-5 text-purple-600 shrink-0" />
+                                ) : (
+                                  <ImageIcon className="w-5 h-5 text-blue-600 shrink-0" />
+                                )}
+                                <div>
+                                  <span className="text-xs font-bold text-slate-800 block">
+                                    {item.label || (item.type === 'video' ? 'Video File' : 'Photo File')}
+                                  </span>
+                                  <span className="text-[11px] text-slate-400">
+                                    {item.resolution} {item.mimeType ? `· ${item.mimeType}` : ''}
+                                  </span>
+                                </div>
                               </div>
+
+                              <button
+                                type="button"
+                                onClick={() => handleFileDownload(item, idx)}
+                                disabled={Boolean(downloadingItemUrl)}
+                                className="px-3.5 py-2 rounded-lg text-xs font-semibold text-white bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 transition-all flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50"
+                              >
+                                <Download className="w-3.5 h-3.5" />
+                                <span>{downloadingItemUrl ? 'Downloading...' : 'Download'}</span>
+                              </button>
                             </div>
 
-                            <button
-                              type="button"
-                              onClick={() => handleFileDownload(item)}
-                              disabled={downloadingItemUrl === item.url}
-                              className="px-3.5 py-2 rounded-lg text-xs font-semibold text-white bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 transition-all flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50"
-                            >
-                              <Download className="w-3.5 h-3.5" />
-                              <span>{downloadingItemUrl === item.url ? 'Downloading...' : 'Download'}</span>
-                            </button>
+                            {/* Video Quality Selector / Resolution Status */}
+                            {item.type === 'video' && (
+                              <div className="pt-2.5 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-semibold text-slate-600 text-[11px]">화질 선택:</span>
+                                  {item.qualityOptions && item.qualityOptions.length > 1 ? (
+                                    <select
+                                      value={selectedQualityByItem[idx] || item.qualityOptions[0].id}
+                                      onChange={(e) =>
+                                        setSelectedQualityByItem((prev) => ({ ...prev, [idx]: e.target.value }))
+                                      }
+                                      className="bg-slate-50 border border-slate-300 text-slate-800 text-xs rounded-md px-2 py-1 focus:ring-1 focus:ring-purple-500 outline-none cursor-pointer"
+                                    >
+                                      {item.qualityOptions.map((opt) => (
+                                        <option key={opt.id} value={opt.id}>
+                                          {opt.label} ({opt.resolution})
+                                        </option>
+                                      ))}
+                                    </select>
+                                  ) : (
+                                    <span
+                                      className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold ${
+                                        item.resolution === '해상도 확인 불가'
+                                          ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                          : 'bg-purple-50 text-purple-700 border border-purple-200'
+                                      }`}
+                                    >
+                                      {item.resolution === '해상도 확인 불가'
+                                        ? '해상도 확인 불가'
+                                        : `${item.resolution} · 최고 화질`}
+                                    </span>
+                                  )}
+                                </div>
+
+                                <p className="text-[10.5px] text-slate-400">
+                                  {item.qualityOptions && item.qualityOptions.length > 1
+                                    ? '서버에서 검증된 화질 중 선택하여 다운로드할 수 있습니다.'
+                                    : item.resolution === '해상도 확인 불가'
+                                    ? '메타데이터에서 해상도 정보를 확인할 수 없어 원본 기본 스트림으로 제공됩니다.'
+                                    : 'Instagram 공개 배포 정책에 따라 제공되는 유일한 원본 프로그레시브 스트림입니다.'}
+                                </p>
+                              </div>
+                            )}
                           </div>
                         ))}
                       </div>

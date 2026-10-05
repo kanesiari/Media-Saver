@@ -2,6 +2,18 @@ export type Platform = 'all' | 'instagram' | 'threads';
 
 export type ContentType = 'reel' | 'post' | 'carousel' | 'video' | 'photo' | 'unknown';
 
+export interface VideoQualityOption {
+  id: string;
+  label: string;
+  resolution: string;
+  width?: number;
+  height?: number;
+  url: string;
+  downloadUrl: string;
+  mimeType: string;
+  isDefault?: boolean;
+}
+
 export interface ExtractedMedia {
   type: 'image' | 'video' | 'carousel';
   url: string;
@@ -11,6 +23,9 @@ export interface ExtractedMedia {
   mimeType?: string;
   verified: boolean;
   label?: string;
+  width?: number;
+  height?: number;
+  qualityOptions?: VideoQualityOption[];
 }
 
 export interface AnalysisResponse {
