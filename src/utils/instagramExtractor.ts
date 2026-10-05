@@ -164,6 +164,140 @@ export function extractShortcode(rawUrl: string): {
   }
 }
 
+interface SidecarNode {
+  id?: string;
+  is_video?: boolean;
+  display_url?: string;
+  video_url?: string;
+  dimensions?: {
+    height?: number;
+    width?: number;
+  };
+}
+
+/**
+ * Parses all slides from Instagram carousel (edge_sidecar_to_children) JSON block in embed HTML.
+ */
+export function parseCarouselFromEmbed(
+  html: string,
+  shortcode: string
+): ExtractedMedia[] | null {
+  const sidecarIdx = html.indexOf('edge_sidecar_to_children');
+  if (sidecarIdx === -1) return null;
+
+  const colonIdx = html.indexOf(':', sidecarIdx);
+  const startIdx = html.indexOf('{', colonIdx);
+  if (startIdx === -1) return null;
+
+  let depth = 0;
+  let endIdx = startIdx;
+  for (let i = startIdx; i < html.length; i++) {
+    if (html[i] === '{' && html[i - 1] !== '\\') depth++;
+    else if (html[i] === '}' && html[i - 1] !== '\\') {
+      depth--;
+      if (depth === 0) {
+        endIdx = i;
+        break;
+      }
+    }
+  }
+
+  if (endIdx <= startIdx) return null;
+
+  const rawJsonStr = html.slice(startIdx, endIdx + 1);
+  const unescaped = rawJsonStr.replace(/\\"/g, '"').replace(/\\\\/g, '\\').replace(/\\\//g, '/');
+
+  try {
+    const parsed = JSON.parse(unescaped) as { edges?: Array<{ node?: SidecarNode }> };
+    if (!parsed.edges || !Array.isArray(parsed.edges) || parsed.edges.length === 0) {
+      return null;
+    }
+
+    const carouselMediaList: ExtractedMedia[] = [];
+
+    parsed.edges.forEach((edge, idx) => {
+      const node = edge?.node;
+      if (!node) return;
+
+      const slideNum = idx + 1;
+      const isVideo = Boolean(node.is_video && node.video_url);
+
+      if (isVideo && node.video_url) {
+        const cleanVideoUrl = node.video_url.replace(/\\\//g, '/').replace(/\\/g, '');
+        const hostCheck = isAllowedMediaHost(cleanVideoUrl);
+        if (hostCheck.allowed) {
+          const cleanPosterUrl = node.display_url
+            ? node.display_url.replace(/\\\//g, '/').replace(/\\/g, '')
+            : cleanVideoUrl;
+          const dims = node.dimensions;
+          const res = dims?.width && dims?.height
+            ? `720p HD (${dims.width}×${dims.height})`
+            : '720p HD';
+          const filename = `instagram_${shortcode}_slide_${slideNum}.mp4`;
+
+          carouselMediaList.push({
+            id: node.id || `slide_${slideNum}_video`,
+            slideIndex: slideNum,
+            type: 'video',
+            url: cleanVideoUrl,
+            downloadUrl: `/api/download?url=${encodeURIComponent(cleanVideoUrl)}&filename=${encodeURIComponent(filename)}`,
+            previewUrl: cleanPosterUrl,
+            resolution: res,
+            mimeType: 'video/mp4',
+            verified: true,
+            label: `Slide ${slideNum} (Video .mp4)`,
+            width: dims?.width || 720,
+            height: dims?.height || 900,
+            qualityOptions: [
+              {
+                id: `quality_slide_${slideNum}_720p`,
+                label: '720p HD',
+                resolution: res,
+                width: dims?.width || 720,
+                height: dims?.height || 900,
+                url: cleanVideoUrl,
+                downloadUrl: `/api/download?url=${encodeURIComponent(cleanVideoUrl)}&filename=${encodeURIComponent(filename)}`,
+                mimeType: 'video/mp4',
+                isDefault: true,
+              },
+            ],
+          });
+        }
+      } else if (node.display_url) {
+        const cleanImgUrl = node.display_url.replace(/\\\//g, '/').replace(/\\/g, '');
+        const hostCheck = isAllowedMediaHost(cleanImgUrl);
+        if (hostCheck.allowed) {
+          const dims = node.dimensions;
+          const res = dims?.width && dims?.height
+            ? `Photo (${dims.width}×${dims.height})`
+            : 'High-Res Photo';
+          const filename = `instagram_${shortcode}_slide_${slideNum}.jpg`;
+
+          carouselMediaList.push({
+            id: node.id || `slide_${slideNum}_photo`,
+            slideIndex: slideNum,
+            type: 'image',
+            url: cleanImgUrl,
+            downloadUrl: `/api/download?url=${encodeURIComponent(cleanImgUrl)}&filename=${encodeURIComponent(filename)}`,
+            previewUrl: cleanImgUrl,
+            resolution: res,
+            mimeType: 'image/jpeg',
+            verified: true,
+            label: `Slide ${slideNum} (Photo .jpg)`,
+            width: dims?.width,
+            height: dims?.height,
+          });
+        }
+      }
+    });
+
+    return carouselMediaList.length > 0 ? carouselMediaList : null;
+  } catch (err) {
+    console.error('Failed to parse carousel JSON from embed:', err);
+    return null;
+  }
+}
+
 /**
  * Attempts to extract direct media file candidates (image and/or video) from public embed endpoint
  */
@@ -172,7 +306,7 @@ export async function extractMediaFromPublicEmbed(
   platform: 'instagram' | 'threads'
 ): Promise<{
   mediaList: ExtractedMedia[];
-  contentType?: 'reel' | 'post' | 'video' | 'photo';
+  contentType?: 'reel' | 'post' | 'video' | 'photo' | 'carousel';
   author?: string;
   caption?: string;
 } | null> {
@@ -218,6 +352,18 @@ export async function extractMediaFromPublicEmbed(
         .trim();
     }
 
+    // A. Check if post is a carousel (has edge_sidecar_to_children)
+    const carouselItems = parseCarouselFromEmbed(html, shortcode);
+    if (carouselItems && carouselItems.length > 0) {
+      return {
+        mediaList: carouselItems,
+        contentType: 'carousel',
+        author,
+        caption,
+      };
+    }
+
+    // B. Fallback to single item extraction (Single Video / Single Photo / Reel)
     // 1. Search for all video_url occurrences in HTML
     const foundVideoUrls: string[] = [];
     let searchIdx = 0;

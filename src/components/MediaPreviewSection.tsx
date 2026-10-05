@@ -12,6 +12,11 @@ import {
   Code2, 
   ShieldCheck, 
   AlertCircle,
+  CheckSquare,
+  Square,
+  Layers,
+  Loader2,
+  ArrowDownToLine,
   Image as ImageIcon
 } from 'lucide-react';
 import { AnalysisResponse, ExtractedMedia } from '../types';
@@ -36,12 +41,28 @@ export const MediaPreviewSection: React.FC<MediaPreviewSectionProps> = ({
   const [downloadingItemUrl, setDownloadingItemUrl] = useState<string | null>(null);
   const [downloadMessage, setDownloadMessage] = useState<string | null>(null);
   const [selectedQualityByItem, setSelectedQualityByItem] = useState<Record<number, string>>({});
+  const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
+  const [isBatchDownloading, setIsBatchDownloading] = useState(false);
+  const [batchProgress, setBatchProgress] = useState<{
+    current: number;
+    total: number;
+    successCount: number;
+    failCount: number;
+  } | null>(null);
 
   useEffect(() => {
     setIframeLoaded(false);
     setLoadTimedOut(false);
     setDownloadMessage(null);
     setSelectedQualityByItem({});
+    setIsBatchDownloading(false);
+    setBatchProgress(null);
+
+    if (analysisData?.mediaList && analysisData.mediaList.length > 0) {
+      setSelectedIndices(new Set(analysisData.mediaList.map((_, i) => i)));
+    } else {
+      setSelectedIndices(new Set());
+    }
 
     if (analysisData?.embedUrl) {
       const timer = setTimeout(() => {
@@ -49,7 +70,7 @@ export const MediaPreviewSection: React.FC<MediaPreviewSectionProps> = ({
       }, 7000);
       return () => clearTimeout(timer);
     }
-  }, [analysisData?.embedUrl]);
+  }, [analysisData?.embedUrl, analysisData?.mediaList]);
 
   const handleCopyUrl = () => {
     if (analysisData?.canonicalUrl) {
@@ -68,6 +89,46 @@ export const MediaPreviewSection: React.FC<MediaPreviewSectionProps> = ({
     }
   };
 
+  const handleSelectAll = () => {
+    if (!analysisData?.mediaList) return;
+    setSelectedIndices(new Set(analysisData.mediaList.map((_, i) => i)));
+  };
+
+  const handleDeselectAll = () => {
+    setSelectedIndices(new Set());
+  };
+
+  const toggleSelectItem = (index: number) => {
+    setSelectedIndices((prev) => {
+      const next = new Set(prev);
+      if (next.has(index)) {
+        next.delete(index);
+      } else {
+        next.add(index);
+      }
+      return next;
+    });
+  };
+
+  const downloadSingleBlob = async (targetUrl: string, filename: string): Promise<boolean> => {
+    const response = await fetch(targetUrl);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    const blob = await response.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = objectUrl;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      document.body.removeChild(a);
+      URL.revokeObjectURL(objectUrl);
+    }, 1500);
+    return true;
+  };
+
   const handleFileDownload = async (item: ExtractedMedia, itemIndex = 0) => {
     let downloadTarget = item.downloadUrl || item.url;
 
@@ -78,40 +139,15 @@ export const MediaPreviewSection: React.FC<MediaPreviewSectionProps> = ({
       downloadTarget = matchedQuality.downloadUrl || matchedQuality.url;
     }
 
-    const defaultFilename = `MediaSave_${analysisData?.platform || 'instagram'}_${analysisData?.shortcode || Date.now()}.${item.type === 'video' ? 'mp4' : 'jpg'}`;
+    const slideSuffix = item.slideIndex ? `_slide_${item.slideIndex}` : '';
+    const defaultFilename = `MediaSave_${analysisData?.platform || 'instagram'}_${analysisData?.shortcode || Date.now()}${slideSuffix}.${item.type === 'video' ? 'mp4' : 'jpg'}`;
 
-    setDownloadingItemUrl(item.url);
+    setDownloadingItemUrl(downloadTarget);
     setDownloadMessage('Connecting to download proxy...');
 
     try {
       // 1. Primary method: Fetch binary blob directly from secure streaming proxy
-      const response = await fetch(downloadTarget);
-      if (!response.ok) {
-        let errorMsg = `Server returned status ${response.status}`;
-        try {
-          const errData = await response.json();
-          if (errData?.error) errorMsg = errData.error;
-        } catch {
-          // ignore json parse error
-        }
-        throw new Error(errorMsg);
-      }
-
-      setDownloadMessage('Saving media file to your device...');
-      const blob = await response.blob();
-      const objectUrl = URL.createObjectURL(blob);
-
-      const a = document.createElement('a');
-      a.href = objectUrl;
-      a.download = defaultFilename;
-      document.body.appendChild(a);
-      a.click();
-
-      setTimeout(() => {
-        document.body.removeChild(a);
-        URL.revokeObjectURL(objectUrl);
-      }, 1500);
-
+      await downloadSingleBlob(downloadTarget, defaultFilename);
       setDownloadMessage('File downloaded successfully!');
     } catch (err: any) {
       console.warn('Direct blob download error, triggering fallback anchor navigation:', err);
@@ -132,6 +168,91 @@ export const MediaPreviewSection: React.FC<MediaPreviewSectionProps> = ({
       setDownloadingItemUrl(null);
       setTimeout(() => setDownloadMessage(null), 4000);
     }
+  };
+
+  const handleBatchDownload = async () => {
+    if (!analysisData?.mediaList || selectedIndices.size === 0 || isBatchDownloading) return;
+
+    const indicesToDownload = Array.from(selectedIndices).sort((a, b) => a - b);
+    setIsBatchDownloading(true);
+    let successCount = 0;
+    let failCount = 0;
+
+    setBatchProgress({
+      current: 0,
+      total: indicesToDownload.length,
+      successCount: 0,
+      failCount: 0,
+    });
+    setDownloadMessage(`Starting batch download of ${indicesToDownload.length} files...`);
+
+    for (let i = 0; i < indicesToDownload.length; i++) {
+      const idx = indicesToDownload[i];
+      const item = analysisData.mediaList[idx];
+      if (!item) continue;
+
+      let downloadTarget = item.downloadUrl || item.url;
+      if (item.type === 'video' && item.qualityOptions && item.qualityOptions.length > 0) {
+        const selectedId = selectedQualityByItem[idx] || item.qualityOptions[0].id;
+        const matched = item.qualityOptions.find((q) => q.id === selectedId) || item.qualityOptions[0];
+        downloadTarget = matched.downloadUrl || matched.url;
+      }
+
+      const slideNum = item.slideIndex || idx + 1;
+      const ext = item.type === 'video' ? 'mp4' : 'jpg';
+      const filename = `MediaSave_${analysisData.platform || 'instagram'}_${analysisData.shortcode || Date.now()}_slide_${slideNum}.${ext}`;
+
+      setBatchProgress({
+        current: i + 1,
+        total: indicesToDownload.length,
+        successCount,
+        failCount,
+      });
+      setDownloadMessage(`Downloading item ${i + 1}/${indicesToDownload.length}: Slide ${slideNum}...`);
+
+      try {
+        await downloadSingleBlob(downloadTarget, filename);
+        successCount++;
+      } catch (err) {
+        console.warn(`Failed to download slide ${slideNum}:`, err);
+        // Fallback: direct anchor navigation
+        try {
+          const a = document.createElement('a');
+          a.href = downloadTarget;
+          a.download = filename;
+          a.target = '_blank';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          successCount++;
+        } catch {
+          failCount++;
+        }
+      }
+
+      setBatchProgress({
+        current: i + 1,
+        total: indicesToDownload.length,
+        successCount,
+        failCount,
+      });
+
+      // 600ms throttle interval between consecutive browser downloads
+      if (i < indicesToDownload.length - 1) {
+        await new Promise((r) => setTimeout(r, 600));
+      }
+    }
+
+    setIsBatchDownloading(false);
+    if (failCount === 0) {
+      setDownloadMessage(`일괄 다운로드 완료! 총 ${successCount}개 파일이 성공적으로 저장되었습니다.`);
+    } else {
+      setDownloadMessage(`일괄 다운로드 완료: ${successCount}개 성공, ${failCount}개 실패.`);
+    }
+    setTimeout(() => {
+      setBatchProgress(null);
+      setTimeout(() => setDownloadMessage(null), 3000);
+    }, 4000);
   };
 
   return (
@@ -340,29 +461,164 @@ export const MediaPreviewSection: React.FC<MediaPreviewSectionProps> = ({
                   {/* Real Verified Media Downloads (if available from Meta API) */}
                   {analysisData.hasDirectDownload && analysisData.mediaList.length > 0 ? (
                     <div className="space-y-3">
-                      <div className="text-xs font-bold uppercase tracking-wider text-emerald-800 flex items-center gap-1.5">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                        <span>Verified Media File Available</span>
+                      <div className="flex items-center justify-between">
+                        <div className="text-xs font-bold uppercase tracking-wider text-emerald-800 flex items-center gap-1.5">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                          <span>
+                            {analysisData.mediaList.length > 1
+                              ? `Verified Carousel Media (${analysisData.mediaList.length} Files)`
+                              : 'Verified Media File Available'}
+                          </span>
+                        </div>
+
+                        {analysisData.mediaList.length > 1 && (
+                          <span className="text-[11px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+                            동영상 {analysisData.mediaList.filter((m) => m.type === 'video').length} · 사진 {analysisData.mediaList.filter((m) => m.type === 'image').length}
+                          </span>
+                        )}
                       </div>
 
+                      {/* Carousel Batch Control Bar (When multiple items exist) */}
+                      {analysisData.mediaList.length > 1 && (
+                        <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3.5 space-y-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <Layers className="w-4 h-4 text-purple-600 shrink-0" />
+                              <span className="text-xs font-bold text-slate-800">
+                                캐러셀 일괄 다운로드
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={handleSelectAll}
+                                disabled={isBatchDownloading}
+                                className="text-[11px] font-semibold text-slate-600 hover:text-slate-900 bg-white border border-slate-200 px-2.5 py-1 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                              >
+                                전체 선택
+                              </button>
+                              <button
+                                type="button"
+                                onClick={handleDeselectAll}
+                                disabled={isBatchDownloading}
+                                className="text-[11px] font-semibold text-slate-600 hover:text-slate-900 bg-white border border-slate-200 px-2.5 py-1 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                              >
+                                전체 해제
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 pt-2 border-t border-slate-200/80">
+                            <span className="text-xs text-slate-600">
+                              선택: <strong className="text-purple-600 font-bold">{selectedIndices.size}</strong> / {analysisData.mediaList.length}개 항목
+                            </span>
+
+                            <button
+                              type="button"
+                              onClick={handleBatchDownload}
+                              disabled={selectedIndices.size === 0 || isBatchDownloading}
+                              className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 transition-all flex items-center justify-center gap-2 shadow-xs disabled:opacity-50 cursor-pointer"
+                            >
+                              {isBatchDownloading ? (
+                                <>
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                  <span>다운로드 중 ({batchProgress ? `${batchProgress.current}/${batchProgress.total}` : ''})...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <ArrowDownToLine className="w-3.5 h-3.5" />
+                                  <span>선택 항목 일괄 다운로드 ({selectedIndices.size}개)</span>
+                                </>
+                              )}
+                            </button>
+                          </div>
+
+                          {/* Batch Progress Bar */}
+                          {batchProgress && (
+                            <div className="space-y-1.5 pt-1">
+                              <div className="flex items-center justify-between text-[11px] text-slate-600 font-medium">
+                                <span>진행: {batchProgress.current} / {batchProgress.total}</span>
+                                <span>성공 {batchProgress.successCount}개{batchProgress.failCount > 0 ? `, 실패 ${batchProgress.failCount}개` : ''}</span>
+                              </div>
+                              <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                                <div
+                                  className="h-full bg-purple-600 transition-all duration-300"
+                                  style={{ width: `${(batchProgress.current / batchProgress.total) * 100}%` }}
+                                />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Items List */}
                       <div className="space-y-2">
                         {analysisData.mediaList.map((item, idx) => (
                           <div
                             key={idx}
-                            className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs space-y-3"
+                            className={`bg-white p-3.5 sm:p-4 rounded-xl border transition-all space-y-2.5 ${
+                              selectedIndices.has(idx)
+                                ? 'border-purple-300 ring-1 ring-purple-100 shadow-xs'
+                                : 'border-slate-200 shadow-2xs'
+                            }`}
                           >
                             <div className="flex items-center justify-between gap-3">
-                              <div className="flex items-center gap-3">
-                                {item.type === 'video' ? (
-                                  <Film className="w-5 h-5 text-purple-600 shrink-0" />
-                                ) : (
-                                  <ImageIcon className="w-5 h-5 text-blue-600 shrink-0" />
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                {/* Checkbox (When carousel / multi-item) */}
+                                {analysisData.mediaList.length > 1 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleSelectItem(idx)}
+                                    disabled={isBatchDownloading}
+                                    className="text-slate-400 hover:text-purple-600 transition-colors cursor-pointer shrink-0 disabled:opacity-50"
+                                    title={selectedIndices.has(idx) ? '선택 해제' : '선택'}
+                                  >
+                                    {selectedIndices.has(idx) ? (
+                                      <CheckSquare className="w-5 h-5 text-purple-600" />
+                                    ) : (
+                                      <Square className="w-5 h-5 text-slate-300" />
+                                    )}
+                                  </button>
                                 )}
-                                <div>
-                                  <span className="text-xs font-bold text-slate-800 block">
-                                    {item.label || (item.type === 'video' ? 'Video File' : 'Photo File')}
-                                  </span>
-                                  <span className="text-[11px] text-slate-400">
+
+                                {/* Thumbnail preview if available */}
+                                {item.previewUrl ? (
+                                  <div className="w-11 h-11 rounded-lg bg-slate-100 border border-slate-200 overflow-hidden shrink-0 relative">
+                                    <img
+                                      src={item.previewUrl}
+                                      alt={item.label || 'Media preview'}
+                                      className="w-full h-full object-cover"
+                                      loading="lazy"
+                                    />
+                                    {item.type === 'video' && (
+                                      <div className="absolute inset-0 bg-black/30 flex items-center justify-center">
+                                        <Film className="w-3.5 h-3.5 text-white" />
+                                      </div>
+                                    )}
+                                  </div>
+                                ) : item.type === 'video' ? (
+                                  <div className="w-11 h-11 rounded-lg bg-purple-50 border border-purple-200 flex items-center justify-center shrink-0">
+                                    <Film className="w-5 h-5 text-purple-600" />
+                                  </div>
+                                ) : (
+                                  <div className="w-11 h-11 rounded-lg bg-blue-50 border border-blue-200 flex items-center justify-center shrink-0">
+                                    <ImageIcon className="w-5 h-5 text-blue-600" />
+                                  </div>
+                                )}
+
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    {analysisData.mediaList.length > 1 && (
+                                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-700">
+                                        #{item.slideIndex || idx + 1}
+                                      </span>
+                                    )}
+                                    <span className="text-xs font-bold text-slate-800 truncate">
+                                      {item.label || (item.type === 'video' ? 'Video File' : 'Photo File')}
+                                    </span>
+                                  </div>
+                                  <span className="text-[11px] text-slate-400 block mt-0.5 truncate">
                                     {item.resolution} {item.mimeType ? `· ${item.mimeType}` : ''}
                                   </span>
                                 </div>
@@ -371,17 +627,17 @@ export const MediaPreviewSection: React.FC<MediaPreviewSectionProps> = ({
                               <button
                                 type="button"
                                 onClick={() => handleFileDownload(item, idx)}
-                                disabled={Boolean(downloadingItemUrl)}
-                                className="px-3.5 py-2 rounded-lg text-xs font-semibold text-white bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 transition-all flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50"
+                                disabled={Boolean(downloadingItemUrl) || isBatchDownloading}
+                                className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 transition-all flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50 shrink-0"
                               >
                                 <Download className="w-3.5 h-3.5" />
-                                <span>{downloadingItemUrl ? 'Downloading...' : 'Download'}</span>
+                                <span>{downloadingItemUrl === (item.downloadUrl || item.url) ? '...' : 'Download'}</span>
                               </button>
                             </div>
 
                             {/* Video Quality Selector / Resolution Status */}
                             {item.type === 'video' && (
-                              <div className="pt-2.5 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                              <div className="pt-2 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 text-xs">
                                 <div className="flex items-center gap-2">
                                   <span className="font-semibold text-slate-600 text-[11px]">화질 선택:</span>
                                   {item.qualityOptions && item.qualityOptions.length > 1 ? (

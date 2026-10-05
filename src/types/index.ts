@@ -15,6 +15,8 @@ export interface VideoQualityOption {
 }
 
 export interface ExtractedMedia {
+  id?: string;
+  slideIndex?: number;
   type: 'image' | 'video' | 'carousel';
   url: string;
   downloadUrl?: string;
