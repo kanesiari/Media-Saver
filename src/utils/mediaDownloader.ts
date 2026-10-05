@@ -137,7 +137,13 @@ export async function streamMediaDownload(
   if (redirectCount > 3) {
     return new Response(
       JSON.stringify({ error: 'Too many redirects from upstream CDN.' }),
-      { status: 502, headers: { 'Content-Type': 'application/json' } }
+      {
+        status: 502,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        },
+      }
     );
   }
 
@@ -175,7 +181,13 @@ export async function streamMediaDownload(
       if (!location) {
         return new Response(
           JSON.stringify({ error: 'Upstream returned redirect without Location header.' }),
-          { status: 502, headers: { 'Content-Type': 'application/json' } }
+          {
+            status: 502,
+            headers: {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*',
+            },
+          }
         );
       }
 
@@ -190,7 +202,10 @@ export async function streamMediaDownload(
           }),
           {
             status: 403,
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*',
+            },
           }
         );
       }
@@ -205,7 +220,10 @@ export async function streamMediaDownload(
         }),
         {
           status: upstreamRes.status,
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+          },
         }
       );
     }
@@ -221,7 +239,10 @@ export async function streamMediaDownload(
         }),
         {
           status: 400,
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+          },
         }
       );
     }

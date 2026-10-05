@@ -68,23 +68,56 @@ export const MediaPreviewSection: React.FC<MediaPreviewSectionProps> = ({
 
   const handleFileDownload = async (item: ExtractedMedia) => {
     const downloadTarget = item.downloadUrl || item.url;
+    const defaultFilename = `MediaSave_${analysisData?.platform || 'instagram'}_${analysisData?.shortcode || Date.now()}.${item.type === 'video' ? 'mp4' : 'jpg'}`;
+
     setDownloadingItemUrl(item.url);
-    setDownloadMessage('Starting secure file download...');
+    setDownloadMessage('Connecting to download proxy...');
 
     try {
-      // Create programmatic anchor pointing to the secure streaming proxy endpoint
+      // 1. Primary method: Fetch binary blob directly from secure streaming proxy
+      const response = await fetch(downloadTarget);
+      if (!response.ok) {
+        let errorMsg = `Server returned status ${response.status}`;
+        try {
+          const errData = await response.json();
+          if (errData?.error) errorMsg = errData.error;
+        } catch {
+          // ignore json parse error
+        }
+        throw new Error(errorMsg);
+      }
+
+      setDownloadMessage('Saving media file to your device...');
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+
       const a = document.createElement('a');
-      a.href = downloadTarget;
-      a.download = `MediaSave_${analysisData?.platform || 'instagram'}_${analysisData?.shortcode || Date.now()}.${item.type === 'video' ? 'mp4' : 'jpg'}`;
+      a.href = objectUrl;
+      a.download = defaultFilename;
       document.body.appendChild(a);
       a.click();
-      document.body.removeChild(a);
 
-      setDownloadMessage('File download initiated successfully.');
-    } catch {
-      // Fallback
-      window.open(downloadTarget, '_blank', 'noopener,noreferrer');
-      setDownloadMessage('Download opened in new browser tab.');
+      setTimeout(() => {
+        document.body.removeChild(a);
+        URL.revokeObjectURL(objectUrl);
+      }, 1500);
+
+      setDownloadMessage('File downloaded successfully!');
+    } catch (err: any) {
+      console.warn('Direct blob download error, triggering fallback anchor navigation:', err);
+      // 2. Fallback method: Direct anchor navigation / new tab download
+      try {
+        const fallbackA = document.createElement('a');
+        fallbackA.href = downloadTarget;
+        fallbackA.download = defaultFilename;
+        fallbackA.target = '_blank';
+        document.body.appendChild(fallbackA);
+        fallbackA.click();
+        document.body.removeChild(fallbackA);
+        setDownloadMessage('Download initiated via browser fallback.');
+      } catch {
+        setDownloadMessage(`Download failed: ${err?.message || 'Network error'}`);
+      }
     } finally {
       setDownloadingItemUrl(null);
       setTimeout(() => setDownloadMessage(null), 4000);
