@@ -12,24 +12,30 @@ import { isAllowedMediaHost } from './mediaDownloader';
  * Accurately detects video resolution from surrounding dimensions metadata or URL parameters.
  * If dimensions cannot be verified, returns '해상도 확인 불가'.
  */
+/**
+ * Accurately analyzes video resolution and metadata.
+ * Differentiates post display/canvas dimensions from actual encoded video stream resolution.
+ * Instagram public web embeds provide progressive MP4 streams that are capped at 720p.
+ * Never falsely classifies 720p streams as 1080p based on post canvas dimensions.
+ */
 export function detectVideoResolution(
   html: string,
   videoUrl: string
-): { width?: number; height?: number; resolution: string; shortLabel: string } {
-  let width: number | undefined;
-  let height: number | undefined;
+): { width?: number; height?: number; resolution: string; shortLabel: string; isEstimated: boolean } {
+  let canvasWidth: number | undefined;
+  let canvasHeight: number | undefined;
 
-  // 1. Try matching dimensions in JSON
+  // 1. Check canvas/viewport dimensions in JSON (represents original upload/canvas aspect ratio)
   const dimMatch =
     html.match(/\\"dimensions\\":\{\\"height\\":(\d+),\\"width\\":(\d+)\}/) ||
     html.match(/"dimensions":\{"height":(\d+),"width":(\d+)\}/);
   if (dimMatch) {
-    height = parseInt(dimMatch[1], 10);
-    width = parseInt(dimMatch[2], 10);
+    canvasHeight = parseInt(dimMatch[1], 10);
+    canvasWidth = parseInt(dimMatch[2], 10);
   }
 
-  // 2. Check efg query parameter in URL (e.g. 720, 1080)
-  let efgTag: string | null = null;
+  // 2. Check efg query parameter in URL (e.g. 720, 1080 preset encoding tag)
+  let efgPresetTag: string | null = null;
   try {
     const parsed = new URL(videoUrl);
     const efg = parsed.searchParams.get('efg');
@@ -43,33 +49,62 @@ export function detectVideoResolution(
       }
       const tagMatch = decodedStr.match(/\.(\d{3,4})\./);
       if (tagMatch) {
-        efgTag = `${tagMatch[1]}p`;
+        efgPresetTag = `${tagMatch[1]}p`;
       }
     }
   } catch {
     // ignore
   }
 
-  if (width && height) {
-    const minDim = Math.min(width, height);
-    const maxDim = Math.max(width, height);
-    if (minDim >= 1080 || maxDim >= 1920) {
-      return { width, height, resolution: `1080p Full HD (${width}×${height})`, shortLabel: '1080p Full HD' };
+  // 3. Strict analysis:
+  // Note: Instagram public web embeds transcode all progressive MP4s to 720p.
+  // Even if canvas dimensions are 1080x1350 or 1080x1920, the actual video stream is scaled down to 720p (720x900 or 720x1280).
+  // If efg has 720 (or default web progressive stream):
+  if (efgPresetTag === '720p' || (!efgPresetTag && canvasWidth && canvasHeight)) {
+    // Calculate the actual 720p scaled video dimensions
+    if (canvasWidth && canvasHeight && canvasWidth > 0) {
+      const aspectRatio = canvasHeight / canvasWidth;
+      const actualWidth = 720;
+      const actualHeight = Math.round(720 * aspectRatio);
+      return {
+        width: actualWidth,
+        height: actualHeight,
+        resolution: `720p HD (${actualWidth}×${actualHeight})`,
+        shortLabel: '720p HD',
+        isEstimated: false,
+      };
     }
-    if (minDim >= 720 || maxDim >= 1280 || efgTag === '720p') {
-      return { width, height, resolution: `720p HD (${width}×${height})`, shortLabel: '720p HD' };
-    }
-    if (minDim >= 480) {
-      return { width, height, resolution: `480p SD (${width}×${height})`, shortLabel: '480p SD' };
-    }
-    return { width, height, resolution: `${minDim}p (${width}×${height})`, shortLabel: `${minDim}p` };
+    return {
+      resolution: '720p HD (웹 표준 화질)',
+      shortLabel: '720p HD',
+      isEstimated: true,
+    };
   }
 
-  if (efgTag) {
-    return { resolution: `${efgTag} HD`, shortLabel: `${efgTag} HD` };
+  // If explicitly tagged as 1080p in efg (very rare on public embeds)
+  if (efgPresetTag === '1080p') {
+    return {
+      resolution: '1080p Full HD',
+      shortLabel: '1080p Full HD',
+      isEstimated: false,
+    };
   }
 
-  return { resolution: '해상도 확인 불가', shortLabel: '해상도 확인 불가' };
+  // If efg tagged with another resolution (e.g. 480p)
+  if (efgPresetTag) {
+    return {
+      resolution: `${efgPresetTag} (추정 해상도)`,
+      shortLabel: efgPresetTag,
+      isEstimated: true,
+    };
+  }
+
+  // If cannot be confirmed:
+  return {
+    resolution: '해상도 확인 불가',
+    shortLabel: '해상도 확인 불가',
+    isEstimated: true,
+  };
 }
 
 /**
@@ -207,12 +242,13 @@ export async function extractMediaFromPublicEmbed(
       const primaryMeta = detectVideoResolution(html, primaryVideoUrl);
       const filename = `instagram_${shortcode}.mp4`;
 
+      // Build quality options strictly and only for distinct media URLs actually obtained
       const qualityOptions: VideoQualityOption[] = foundVideoUrls.map((vUrl, idx) => {
         const meta = idx === 0 ? primaryMeta : detectVideoResolution(html, vUrl);
         const isDefault = idx === 0;
         return {
-          id: `quality_${idx}`,
-          label: `${meta.shortLabel}${isDefault ? ' (최고 화질/기본)' : ''}`,
+          id: `quality_${idx}_${meta.shortLabel.replace(/[^a-zA-Z0-9]/g, '_')}`,
+          label: `${meta.shortLabel}${foundVideoUrls.length > 1 && isDefault ? ' (최고 화질/기본)' : ''}`,
           resolution: meta.resolution,
           width: meta.width,
           height: meta.height,

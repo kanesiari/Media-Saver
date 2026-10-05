@@ -407,18 +407,18 @@ export const MediaPreviewSection: React.FC<MediaPreviewSectionProps> = ({
                                       }`}
                                     >
                                       {item.resolution === '해상도 확인 불가'
-                                        ? '해상도 확인 불가'
-                                        : `${item.resolution} · 최고 화질`}
+                                        ? '해상도 확인 불가 (기본 스트림)'
+                                        : `${item.resolution} · 제공 화질`}
                                     </span>
                                   )}
                                 </div>
 
                                 <p className="text-[10.5px] text-slate-400">
                                   {item.qualityOptions && item.qualityOptions.length > 1
-                                    ? '서버에서 검증된 화질 중 선택하여 다운로드할 수 있습니다.'
+                                    ? '서버에서 실제 확보된 서로 다른 화질 스트림 중 선택하여 다운로드합니다.'
                                     : item.resolution === '해상도 확인 불가'
-                                    ? '메타데이터에서 해상도 정보를 확인할 수 없어 원본 기본 스트림으로 제공됩니다.'
-                                    : 'Instagram 공개 배포 정책에 따라 제공되는 유일한 원본 프로그레시브 스트림입니다.'}
+                                    ? '메타데이터에서 정확한 픽셀 해상도를 확인할 수 없어 원본 기본 스트림으로 제공됩니다.'
+                                    : 'Instagram 공개 배포 정책에 따라 제공되는 단일 720p 원본 스트림입니다. (1080p는 공개 웹에서 별도 제공되지 않음)'}
                                 </p>
                               </div>
                             )}
