@@ -1,0 +1,43 @@
+{
+  "items": [
+    {
+      "id": "3123456789012345680_1234567",
+      "code": "C99CarouselPhoto",
+      "media_type": 8,
+      "caption": {
+        "text": "Photo album from Tokyo trip! Slide to see more."
+      },
+      "user": {
+        "username": "traveler_tokyo"
+      },
+      "carousel_media": [
+        {
+          "id": "carousel_slide_1",
+          "media_type": 1,
+          "image_versions2": {
+            "candidates": [
+              {
+                "width": 1080,
+                "height": 1080,
+                "url": "https://scontent-iad3-2.cdninstagram.com/v/t51.2885-15/tokyo_slide_1.jpg?_nc_cat=103"
+              }
+            ]
+          }
+        },
+        {
+          "id": "carousel_slide_2",
+          "media_type": 1,
+          "image_versions2": {
+            "candidates": [
+              {
+                "width": 1080,
+                "height": 1080,
+                "url": "https://scontent-iad3-2.cdninstagram.com/v/t51.2885-15/tokyo_slide_2.jpg?_nc_cat=103"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

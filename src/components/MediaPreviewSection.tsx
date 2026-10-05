@@ -8,13 +8,13 @@ import {
   RotateCcw, 
   Copy, 
   Check, 
-  AlertTriangle,
-  Lock,
-  Code2,
-  ShieldCheck,
-  AlertCircle
+  Lock, 
+  Code2, 
+  ShieldCheck, 
+  AlertCircle,
+  Image as ImageIcon
 } from 'lucide-react';
-import { AnalysisResponse } from '../types';
+import { AnalysisResponse, ExtractedMedia } from '../types';
 
 interface MediaPreviewSectionProps {
   analysisData: AnalysisResponse | null;
@@ -33,10 +33,13 @@ export const MediaPreviewSection: React.FC<MediaPreviewSectionProps> = ({
   const [loadTimedOut, setLoadTimedOut] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedEmbed, setCopiedEmbed] = useState(false);
+  const [downloadingItemUrl, setDownloadingItemUrl] = useState<string | null>(null);
+  const [downloadMessage, setDownloadMessage] = useState<string | null>(null);
 
   useEffect(() => {
     setIframeLoaded(false);
     setLoadTimedOut(false);
+    setDownloadMessage(null);
 
     if (analysisData?.embedUrl) {
       const timer = setTimeout(() => {
@@ -63,6 +66,31 @@ export const MediaPreviewSection: React.FC<MediaPreviewSectionProps> = ({
     }
   };
 
+  const handleFileDownload = async (item: ExtractedMedia) => {
+    const downloadTarget = item.downloadUrl || item.url;
+    setDownloadingItemUrl(item.url);
+    setDownloadMessage('Starting secure file download...');
+
+    try {
+      // Create programmatic anchor pointing to the secure streaming proxy endpoint
+      const a = document.createElement('a');
+      a.href = downloadTarget;
+      a.download = `MediaSave_${analysisData?.platform || 'instagram'}_${analysisData?.shortcode || Date.now()}.${item.type === 'video' ? 'mp4' : 'jpg'}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+
+      setDownloadMessage('File download initiated successfully.');
+    } catch {
+      // Fallback
+      window.open(downloadTarget, '_blank', 'noopener,noreferrer');
+      setDownloadMessage('Download opened in new browser tab.');
+    } finally {
+      setDownloadingItemUrl(null);
+      setTimeout(() => setDownloadMessage(null), 4000);
+    }
+  };
+
   return (
     <section className="py-8 px-4 sm:px-6 lg:px-8 max-w-4xl mx-auto">
       {/* State 1: Idle / No Link Entered */}
@@ -76,7 +104,7 @@ export const MediaPreviewSection: React.FC<MediaPreviewSectionProps> = ({
             Media Preview Workspace
           </h3>
           <p className="text-sm text-slate-500 max-w-md mx-auto leading-relaxed mb-6">
-            Enter a public post or reel link above and click <span className="font-semibold text-slate-700">&quot;Analyze URL&quot;</span>. The validated post and official live media player will appear here.
+            Enter a public post or reel link above and click <span className="font-semibold text-slate-700">&quot;Analyze URL&quot;</span>. The verified post and official live media player will appear here.
           </p>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-lg mx-auto text-left text-xs">
@@ -122,9 +150,15 @@ export const MediaPreviewSection: React.FC<MediaPreviewSectionProps> = ({
                 <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500" />
               </span>
               <div>
-                <span className="text-xs font-bold uppercase tracking-wider text-indigo-800 bg-indigo-100/80 px-2 py-0.5 rounded-md">
-                  URL Parsed
-                </span>
+                {analysisData.postVerified ? (
+                  <span className="text-xs font-bold uppercase tracking-wider text-emerald-800 bg-emerald-100/90 px-2 py-0.5 rounded-md">
+                    Verified by Meta API
+                  </span>
+                ) : (
+                  <span className="text-xs font-bold uppercase tracking-wider text-indigo-800 bg-indigo-100/80 px-2 py-0.5 rounded-md">
+                    URL Validated
+                  </span>
+                )}
                 <span className="text-xs text-slate-500 ml-2">Official Live Player Rendered</span>
               </div>
             </div>
@@ -260,47 +294,114 @@ export const MediaPreviewSection: React.FC<MediaPreviewSectionProps> = ({
 
                 {/* Media Actions & Technical Status */}
                 <div className="md:col-span-6 space-y-4">
-                  {/* Transparent Status: Meta Direct Binary Download Restriction */}
-                  <div className="bg-white rounded-xl p-5 border border-slate-200/90 shadow-2xs space-y-3">
-                    <div className="flex items-start gap-2.5">
-                      <Info className="w-4 h-4 text-indigo-600 mt-0.5 shrink-0" />
-                      <div className="space-y-1">
-                        <h5 className="text-xs font-bold text-slate-900">
-                          Direct Binary Download Status: Locked
-                        </h5>
-                        <p className="text-xs text-slate-600 leading-relaxed">
-                          While the official embed above renders the confirmed post directly from Instagram&apos;s CDN, <strong>direct raw binary downloads (.mp4 / .jpg) are strictly restricted</strong> by Meta&apos;s anti-scraping and Platform API policies.
+                  {/* Real Verified Media Downloads (if available from Meta API) */}
+                  {analysisData.hasDirectDownload && analysisData.mediaList.length > 0 ? (
+                    <div className="space-y-3">
+                      <div className="text-xs font-bold uppercase tracking-wider text-emerald-800 flex items-center gap-1.5">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                        <span>Verified Media File Available</span>
+                      </div>
+
+                      <div className="space-y-2">
+                        {analysisData.mediaList.map((item, idx) => (
+                          <div
+                            key={idx}
+                            className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs flex items-center justify-between gap-3"
+                          >
+                            <div className="flex items-center gap-3">
+                              {item.type === 'video' ? (
+                                <Film className="w-5 h-5 text-purple-600 shrink-0" />
+                              ) : (
+                                <ImageIcon className="w-5 h-5 text-blue-600 shrink-0" />
+                              )}
+                              <div>
+                                <span className="text-xs font-bold text-slate-800 block">
+                                  {item.label || (item.type === 'video' ? 'Video File' : 'Photo File')}
+                                </span>
+                                <span className="text-[11px] text-slate-400">
+                                  {item.resolution} {item.mimeType ? `· ${item.mimeType}` : ''}
+                                </span>
+                              </div>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => handleFileDownload(item)}
+                              disabled={downloadingItemUrl === item.url}
+                              className="px-3.5 py-2 rounded-lg text-xs font-semibold text-white bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 transition-all flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                              <span>{downloadingItemUrl === item.url ? 'Downloading...' : 'Download'}</span>
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Video explanation if only photo was returned for a video/reel */}
+                      {(analysisData.contentType === 'reel' || analysisData.contentType === 'video') &&
+                        !analysisData.mediaList.some((m) => m.type === 'video') && (
+                        <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-[11px] text-slate-600 space-y-1">
+                          <div className="font-semibold text-slate-700 flex items-center gap-1">
+                            <Info className="w-3 h-3 text-slate-500" />
+                            <span>Raw Video (.mp4) Status</span>
+                          </div>
+                          <p>
+                            Direct .mp4 video file was not found in the public stream. A high-resolution cover photo is available for download above, and the video is streaming live in the official player.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    /* Transparent Status: When Meta API token is not yet configured */
+                    <div className="bg-white rounded-xl p-5 border border-slate-200/90 shadow-2xs space-y-3">
+                      <div className="flex items-start gap-2.5">
+                        <Info className="w-4 h-4 text-indigo-600 mt-0.5 shrink-0" />
+                        <div className="space-y-1">
+                          <h5 className="text-xs font-bold text-slate-900">
+                            Direct Binary Download Status: Locked
+                          </h5>
+                          <p className="text-xs text-slate-600 leading-relaxed">
+                            While the official embed above renders the confirmed post directly from Instagram&apos;s CDN, <strong>direct raw binary downloads (.mp4 / .jpg) are strictly restricted</strong> by Meta&apos;s anti-scraping and Platform API policies.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="p-3 bg-slate-50 rounded-lg border border-slate-200/80 text-[11px] text-slate-500 space-y-1">
+                        <div className="font-semibold text-slate-700 flex items-center gap-1">
+                          <Lock className="w-3 h-3 text-slate-500" />
+                          <span>Why is direct binary download locked?</span>
+                        </div>
+                        <p>
+                          1. Meta oEmbed API provides embed player HTML only, not raw downloadable MP4 or JPG files.<br />
+                          2. Meta has deprecated the thumbnail_url field from all public oEmbed endpoints.<br />
+                          3. Direct media file extraction for third-party content without account owner OAuth is restricted.
+                        </p>
+                      </div>
+
+                      {/* Explicit Disabled Download Button with Clear Explanation */}
+                      <div className="pt-2 border-t border-slate-100">
+                        <button
+                          type="button"
+                          disabled
+                          className="w-full py-3 px-4 rounded-xl font-semibold text-xs sm:text-sm text-slate-400 bg-slate-100 border border-slate-200 cursor-not-allowed flex items-center justify-center gap-2"
+                        >
+                          <Lock className="w-4 h-4 text-slate-400" />
+                          <span>Direct Download Unavailable (Meta Policy Restriction)</span>
+                        </button>
+                        <p className="text-[11px] text-slate-400 text-center mt-2">
+                          Embed streaming is live. We do not generate fake downloads or bypass security.
                         </p>
                       </div>
                     </div>
+                  )}
 
-                    <div className="p-3 bg-slate-50 rounded-lg border border-slate-200/80 text-[11px] text-slate-500 space-y-1">
-                      <div className="font-semibold text-slate-700 flex items-center gap-1">
-                        <Lock className="w-3 h-3 text-slate-500" />
-                        <span>Why is direct binary download locked?</span>
-                      </div>
-                      <p>
-                        1. Meta oEmbed API provides embed player data, not raw downloadable MP4 files.<br />
-                        2. Direct video stream downloading requires owner permissions on Meta Graph API.<br />
-                        3. Unauthorized scraping and CAPTCHA bypasses are strictly prohibited.
-                      </p>
+                  {/* Feedback Message */}
+                  {downloadMessage && (
+                    <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 flex items-center gap-2 animate-in fade-in duration-150">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>{downloadMessage}</span>
                     </div>
-
-                    {/* Explicit Disabled Download Button with Clear Explanation */}
-                    <div className="pt-2 border-t border-slate-100">
-                      <button
-                        type="button"
-                        disabled
-                        className="w-full py-3 px-4 rounded-xl font-semibold text-xs sm:text-sm text-slate-400 bg-slate-100 border border-slate-200 cursor-not-allowed flex items-center justify-center gap-2"
-                      >
-                        <Lock className="w-4 h-4 text-slate-400" />
-                        <span>Direct Download Locked (Meta API Restriction)</span>
-                      </button>
-                      <p className="text-[11px] text-slate-400 text-center mt-2">
-                        Embed streaming is live. We do not generate fake downloads or bypass security.
-                      </p>
-                    </div>
-                  </div>
+                  )}
 
                   {/* Diagnostic / Error Notice Box */}
                   <div className="p-4 bg-slate-50 border border-slate-200/80 rounded-xl text-xs text-slate-600 space-y-2">

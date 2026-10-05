@@ -5,12 +5,20 @@ export type ContentType = 'reel' | 'post' | 'carousel' | 'video' | 'photo' | 'un
 export interface ExtractedMedia {
   type: 'image' | 'video' | 'carousel';
   url: string;
+  downloadUrl?: string;
   previewUrl?: string;
   resolution?: string;
+  mimeType?: string;
+  verified: boolean;
+  label?: string;
 }
 
 export interface AnalysisResponse {
   success: boolean;
+  urlValid: boolean;
+  postVerified: boolean;
+  previewAvailable: boolean;
+  hasDirectDownload: boolean;
   platform: 'instagram' | 'threads' | 'unknown';
   contentType: 'reel' | 'post' | 'video' | 'photo' | 'carousel' | 'unknown';
   shortcode: string;
@@ -19,11 +27,13 @@ export interface AnalysisResponse {
   author?: string;
   caption?: string;
   mediaList: ExtractedMedia[];
-  hasDirectDownload: boolean;
   statusMessage: string;
+  restrictionNotice?: string;
   technicalDetails?: {
     metaGraphApiConfigured: boolean;
     directStreamAvailable: boolean;
+    imageDownloadAvailable: boolean;
+    videoDownloadAvailable: boolean;
     serverIpRestrictedByMeta: boolean;
     recommendedAccess: string;
   };

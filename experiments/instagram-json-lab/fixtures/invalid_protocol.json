@@ -1,0 +1,27 @@
+{
+  "items": [
+    {
+      "code": "C99InvalidProtocol",
+      "media_type": 1,
+      "image_versions2": {
+        "candidates": [
+          {
+            "width": 1080,
+            "height": 1080,
+            "url": "http://scontent-iad3-2.cdninstagram.com/v/t51/insecure_plain_http.jpg"
+          },
+          {
+            "width": 1080,
+            "height": 1080,
+            "url": "not-a-valid-url-at-all"
+          },
+          {
+            "width": 1080,
+            "height": 1080,
+            "url": "https://scontent-iad3-2.cdninstagram.com/v/t51/valid_https.jpg"
+          }
+        ]
+      }
+    }
+  ]
+}

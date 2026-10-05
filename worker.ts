@@ -1,4 +1,5 @@
 import { analyzePost } from './src/utils/instagramExtractor';
+import { streamMediaDownload } from './src/utils/mediaDownloader';
 
 interface Env {
   META_ACCESS_TOKEN?: string;
@@ -29,7 +30,6 @@ export default {
           status: 405,
           headers: {
             'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*',
           },
         });
       }
@@ -42,6 +42,10 @@ export default {
           return new Response(
             JSON.stringify({
               success: false,
+              urlValid: false,
+              postVerified: false,
+              previewAvailable: false,
+              hasDirectDownload: false,
               error: 'No URL provided.',
               statusMessage: 'Please provide a valid Instagram or Threads URL.',
             }),
@@ -68,6 +72,10 @@ export default {
         return new Response(
           JSON.stringify({
             success: false,
+            urlValid: false,
+            postVerified: false,
+            previewAvailable: false,
+            hasDirectDownload: false,
             error: err?.message || 'Server error occurred during analysis.',
             statusMessage: 'Failed to communicate with analysis service.',
           }),
@@ -80,6 +88,42 @@ export default {
           }
         );
       }
+    }
+
+    // API Route: /api/download (Secure streaming proxy for verified media)
+    if (url.pathname === '/api/download') {
+      if (request.method === 'OPTIONS') {
+        return new Response(null, {
+          status: 204,
+          headers: {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type',
+          },
+        });
+      }
+
+      if (request.method !== 'GET') {
+        return new Response(JSON.stringify({ error: 'Method not allowed' }), {
+          status: 405,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      const mediaUrl = url.searchParams.get('url');
+      const filename = url.searchParams.get('filename') || undefined;
+
+      if (!mediaUrl) {
+        return new Response(
+          JSON.stringify({ error: 'Missing required "url" parameter.' }),
+          {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        );
+      }
+
+      return streamMediaDownload(mediaUrl, filename);
     }
 
     // API Route: /api/health

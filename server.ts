@@ -1,8 +1,10 @@
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { Readable } from 'stream';
 import dotenv from 'dotenv';
-import { analyzePost } from './src/utils/instagramExtractor.ts';
+import { analyzePost } from './src/utils/instagramExtractor';
+import { streamMediaDownload } from './src/utils/mediaDownloader';
 
 dotenv.config();
 
@@ -23,6 +25,10 @@ async function startServer() {
       if (!url || typeof url !== 'string') {
         return res.status(400).json({
           success: false,
+          urlValid: false,
+          postVerified: false,
+          previewAvailable: false,
+          hasDirectDownload: false,
           error: 'Please provide a valid URL string.',
           statusMessage: 'Invalid URL input.',
         });
@@ -36,9 +42,41 @@ async function startServer() {
       console.error('API Error in /api/analyze:', err);
       return res.status(500).json({
         success: false,
+        urlValid: false,
+        postVerified: false,
+        previewAvailable: false,
+        hasDirectDownload: false,
         error: err?.message || 'Server error during analysis.',
         statusMessage: 'Internal server error while analyzing URL.',
       });
+    }
+  });
+
+  // API Route: Secure Media Download Stream
+  app.get('/api/download', async (req, res) => {
+    try {
+      const mediaUrl = req.query.url as string;
+      const filename = req.query.filename as string | undefined;
+
+      if (!mediaUrl) {
+        return res.status(400).json({ error: 'Missing required "url" parameter.' });
+      }
+
+      const webRes = await streamMediaDownload(mediaUrl, filename);
+      res.status(webRes.status);
+      webRes.headers.forEach((val, key) => {
+        res.setHeader(key, val);
+      });
+
+      if (!webRes.body) {
+        return res.end();
+      }
+
+      const nodeStream = Readable.fromWeb(webRes.body as any);
+      nodeStream.pipe(res);
+    } catch (err: any) {
+      console.error('API Error in /api/download:', err);
+      return res.status(500).json({ error: err?.message || 'Download streaming failed.' });
     }
   });
 

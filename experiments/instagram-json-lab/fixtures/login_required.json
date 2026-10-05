@@ -1,0 +1,5 @@
+{
+  "message": "user not logged in",
+  "require_login": true,
+  "status": "fail"
+}
