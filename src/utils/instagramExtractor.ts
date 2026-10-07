@@ -7,6 +7,7 @@
 
 import { AnalysisResponse, ExtractedMedia, VideoQualityOption } from '../types';
 import { isAllowedMediaHost } from './mediaDownloader';
+import { extractThreadsMedia } from './threadsExtractor';
 
 /**
  * Accurately detects video resolution from surrounding dimensions metadata or URL parameters.
@@ -154,6 +155,10 @@ export function extractShortcode(rawUrl: string): {
       const postMatch = pathname.match(/\/post\/([A-Za-z0-9_-]+)/);
       if (postMatch) {
         return { platform: 'threads', contentType: 'post', shortcode: postMatch[1] };
+      }
+      const tMatch = pathname.match(/\/t\/([A-Za-z0-9_-]+)/);
+      if (tMatch) {
+        return { platform: 'threads', contentType: 'post', shortcode: tMatch[1] };
       }
       return { platform: 'threads', contentType: 'unknown', shortcode: null };
     }
@@ -543,14 +548,48 @@ export async function analyzePost(
   const canonicalUrl =
     platform === 'instagram'
       ? `https://www.instagram.com/p/${shortcode}/`
-      : `https://www.threads.net/post/${shortcode}`;
+      : author
+      ? `https://www.threads.net/@${author}/post/${shortcode}`
+      : `https://www.threads.net/t/${shortcode}`;
 
   const embedUrl =
     platform === 'instagram'
       ? `https://www.instagram.com/p/${shortcode}/embed/captioned/`
-      : `https://www.threads.net/post/${shortcode}/embed`;
+      : `https://www.threads.net/t/${shortcode}/embed`;
 
-  // Step 1: Attempt direct public media extraction via official server-rendered embed
+  // Step 1: Attempt direct public media extraction
+  if (platform === 'threads') {
+    const directThreadsMedia = await extractThreadsMedia(shortcode, author);
+    if (directThreadsMedia && directThreadsMedia.mediaList.length > 0) {
+      return {
+        success: true,
+        urlValid: true,
+        postVerified: true,
+        previewAvailable: true,
+        hasDirectDownload: true, // REAL DIRECT DOWNLOAD IS AVAILABLE!
+        platform: 'threads',
+        contentType: directThreadsMedia.contentType,
+        shortcode,
+        canonicalUrl: directThreadsMedia.author
+          ? `https://www.threads.net/@${directThreadsMedia.author}/post/${shortcode}`
+          : canonicalUrl,
+        embedUrl,
+        author: directThreadsMedia.author || author,
+        caption: directThreadsMedia.caption,
+        mediaList: directThreadsMedia.mediaList,
+        statusMessage: `Threads post verified. ${directThreadsMedia.mediaList.length} downloadable media file(s) ready.`,
+        technicalDetails: {
+          metaGraphApiConfigured: Boolean(metaAccessToken),
+          directStreamAvailable: true,
+          imageDownloadAvailable: directThreadsMedia.mediaList.some((m) => m.type === 'image'),
+          videoDownloadAvailable: directThreadsMedia.mediaList.some((m) => m.type === 'video'),
+          serverIpRestrictedByMeta: false,
+          recommendedAccess: 'Direct Streaming Download',
+        },
+      };
+    }
+  }
+
   if (platform === 'instagram') {
     const directMedia = await extractMediaFromPublicEmbed(shortcode, platform);
     if (directMedia && directMedia.mediaList.length > 0) {
@@ -627,6 +666,7 @@ export async function analyzePost(
   }
 
   // Step 3: Standard official embed fallback
+  const platformName = platform === 'threads' ? 'Threads' : 'Instagram';
   return {
     success: true,
     urlValid: true,
@@ -640,16 +680,16 @@ export async function analyzePost(
     embedUrl,
     author,
     mediaList: [],
-    statusMessage: 'URL format validated. Streaming live via official Instagram embed player.',
+    statusMessage: `URL format validated. Viewing via official ${platformName} embed player.`,
     restrictionNotice:
-      'Official embed player active. In accordance with Meta Platform Terms, raw binary file extraction for this post is not supported.',
+      `Official ${platformName} embed player active. In accordance with Meta Platform Terms, raw binary file extraction for this post is not supported.`,
     technicalDetails: {
       metaGraphApiConfigured: Boolean(metaAccessToken),
       directStreamAvailable: false,
       imageDownloadAvailable: false,
       videoDownloadAvailable: false,
       serverIpRestrictedByMeta: true,
-      recommendedAccess: 'Official Meta Embed Player',
+      recommendedAccess: `Official Meta ${platformName} Embed Player`,
     },
   };
 }

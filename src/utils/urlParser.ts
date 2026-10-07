@@ -12,8 +12,8 @@ export const SAMPLE_URLS = [
     platform: 'instagram' as const,
   },
   {
-    label: 'Threads Post',
-    url: 'https://www.threads.net/@natgeo/post/C9W3_XqR8uA',
+    label: 'Threads Post (Photo)',
+    url: 'https://www.threads.net/@zuck/post/Ddt4W2Qx-D1',
     platform: 'threads' as const,
   },
 ];
@@ -89,7 +89,7 @@ export function parseSocialUrl(input: string): ParsedUrlData {
     }
 
     // Threads check
-    if (hostname.includes('threads.net')) {
+    if (hostname.includes('threads.net') || hostname.includes('threads.com')) {
       // Threads format: /@author/post/CODE
       const threadsMatch = pathname.match(/\/@([A-Za-z0-9_.-]+)\/post\/([A-Za-z0-9_-]+)/);
       if (threadsMatch) {
@@ -112,6 +112,18 @@ export function parseSocialUrl(input: string): ParsedUrlData {
           platform: 'threads',
           contentType: 'post',
           id: shortThreadsMatch[1],
+        };
+      }
+
+      // Short format: /t/CODE
+      const tThreadsMatch = pathname.match(/\/t\/([A-Za-z0-9_-]+)/);
+      if (tThreadsMatch) {
+        return {
+          isValid: true,
+          rawUrl: trimmed,
+          platform: 'threads',
+          contentType: 'post',
+          id: tThreadsMatch[1],
         };
       }
 
