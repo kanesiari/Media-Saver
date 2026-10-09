@@ -271,20 +271,27 @@ export const MediaPreviewSection: React.FC<MediaPreviewSectionProps> = ({
             Enter a public post or reel link above and click <span className="font-semibold text-slate-700">&quot;Analyze URL&quot;</span>. The verified post and official live media player will appear here.
           </p>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-lg mx-auto text-left text-xs">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-2xl mx-auto text-left text-xs">
             <div className="bg-white p-3.5 rounded-xl border border-slate-200/80 shadow-2xs">
               <div className="font-semibold text-slate-800 mb-1 flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-purple-500" />
-                Instagram Public Posts & Reels
+                Instagram Posts & Reels
               </div>
-              <p className="text-slate-500">Live preview streamed directly via Meta&apos;s official embed CDN player.</p>
+              <p className="text-slate-500">Live preview and direct high-resolution video and photo download.</p>
             </div>
             <div className="bg-white p-3.5 rounded-xl border border-slate-200/80 shadow-2xs">
               <div className="font-semibold text-slate-800 mb-1 flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-blue-500" />
-                Threads Public Posts
+                Threads Posts
               </div>
-              <p className="text-slate-500">Official embed preview for publicly shared Threads content and posts.</p>
+              <p className="text-slate-500">Public Threads photos, single videos, and multi-slide carousels.</p>
+            </div>
+            <div className="bg-white p-3.5 rounded-xl border border-slate-200/80 shadow-2xs">
+              <div className="font-semibold text-slate-800 mb-1 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-cyan-400" />
+                TikTok Videos & Slides
+              </div>
+              <p className="text-slate-500">Public TikTok MP4 videos and high-res photo slideshow extraction.</p>
             </div>
           </div>
         </div>
@@ -316,7 +323,7 @@ export const MediaPreviewSection: React.FC<MediaPreviewSectionProps> = ({
               <div>
                 {analysisData.postVerified ? (
                   <span className="text-xs font-bold uppercase tracking-wider text-emerald-800 bg-emerald-100/90 px-2 py-0.5 rounded-md">
-                    Verified by Meta API
+                    {analysisData.platform === 'tiktok' ? 'Verified TikTok Post' : 'Verified by Meta API'}
                   </span>
                 ) : (
                   <span className="text-xs font-bold uppercase tracking-wider text-indigo-800 bg-indigo-100/80 px-2 py-0.5 rounded-md">
@@ -347,7 +354,9 @@ export const MediaPreviewSection: React.FC<MediaPreviewSectionProps> = ({
                   <span className={`px-2.5 py-1 text-xs font-bold rounded-lg uppercase tracking-wide ${
                     analysisData.platform === 'instagram'
                       ? 'bg-purple-100 text-purple-700'
-                      : 'bg-blue-100 text-blue-700'
+                      : analysisData.platform === 'threads'
+                      ? 'bg-blue-100 text-blue-700'
+                      : 'bg-slate-900 text-white'
                   }`}>
                     {analysisData.platform}
                   </span>

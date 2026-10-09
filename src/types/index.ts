@@ -1,4 +1,4 @@
-export type Platform = 'all' | 'instagram' | 'threads';
+export type Platform = 'all' | 'instagram' | 'threads' | 'tiktok';
 
 export type ContentType = 'reel' | 'post' | 'carousel' | 'video' | 'photo' | 'unknown';
 
@@ -36,7 +36,7 @@ export interface AnalysisResponse {
   postVerified: boolean;
   previewAvailable: boolean;
   hasDirectDownload: boolean;
-  platform: 'instagram' | 'threads' | 'unknown';
+  platform: 'instagram' | 'threads' | 'tiktok' | 'unknown';
   contentType: 'reel' | 'post' | 'video' | 'photo' | 'carousel' | 'unknown';
   shortcode: string;
   canonicalUrl: string;
@@ -60,7 +60,7 @@ export interface AnalysisResponse {
 export interface ParsedUrlData {
   isValid: boolean;
   rawUrl: string;
-  platform: 'instagram' | 'threads' | 'unknown';
+  platform: 'instagram' | 'threads' | 'tiktok' | 'unknown';
   contentType: ContentType;
   id?: string;
   author?: string;
@@ -68,3 +68,14 @@ export interface ParsedUrlData {
 }
 
 export type LegalModalType = 'terms' | 'privacy' | 'copyright' | null;
+
+export type PageRoute =
+  | 'home'
+  | 'about'
+  | 'contact'
+  | 'privacy'
+  | 'terms'
+  | 'copyright'
+  | 'how-to-use'
+  | 'faq'
+  | 'troubleshooting';

@@ -1,23 +1,37 @@
 import React from 'react';
-import { ArrowDownToLine, ShieldCheck, Heart } from 'lucide-react';
-import { Platform } from '../types';
+import { ArrowDownToLine, ShieldCheck, Heart, HelpCircle, FileText, Mail, Info } from 'lucide-react';
+import { Platform, PageRoute } from '../types';
 
 interface FooterProps {
   onSelectPlatform: (platform: Platform) => void;
   onOpenLegalModal: (modal: 'terms' | 'privacy' | 'copyright') => void;
+  onNavigate?: (route: PageRoute) => void;
 }
 
 export const Footer: React.FC<FooterProps> = ({
   onSelectPlatform,
   onOpenLegalModal,
+  onNavigate,
 }) => {
   const scrollToTop = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const scrollToSection = (id: string) => {
-    const el = document.getElementById(id);
-    if (el) el.scrollIntoView({ behavior: 'smooth' });
+  const handleRoute = (route: PageRoute) => {
+    if (onNavigate) {
+      onNavigate(route);
+    }
+  };
+
+  const handlePlatformClick = (platform: Platform) => {
+    if (onNavigate) {
+      onNavigate('home');
+    }
+    onSelectPlatform(platform);
+    setTimeout(() => {
+      const el = document.getElementById('media-input-section');
+      if (el) el.scrollIntoView({ behavior: 'smooth' });
+    }, 50);
   };
 
   return (
@@ -25,7 +39,7 @@ export const Footer: React.FC<FooterProps> = ({
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 md:py-16">
         <div className="grid grid-cols-1 md:grid-cols-12 gap-8 lg:gap-12 pb-12 border-b border-slate-100">
           {/* Brand Info */}
-          <div className="md:col-span-5 space-y-4">
+          <div className="md:col-span-4 space-y-4">
             <div className="flex items-center gap-2.5">
               <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-purple-600 flex items-center justify-center text-white shadow-xs">
                 <ArrowDownToLine className="w-4 h-4" />
@@ -36,17 +50,17 @@ export const Footer: React.FC<FooterProps> = ({
             </div>
 
             <p className="text-slate-500 text-xs sm:text-sm leading-relaxed max-w-sm">
-              MediaSave is a clean, modern web interface for analyzing and previewing public Instagram and Threads media. Built for speed, high privacy standards, and ease of deployment.
+              MediaSave is a clean, modern web interface for analyzing and saving publicly shared media from Instagram, Threads, and TikTok. Built for speed, high privacy standards, and ease of deployment.
             </p>
 
             <div className="flex items-center gap-2 text-xs text-slate-400">
               <span className="inline-block w-2 h-2 rounded-full bg-emerald-500" />
-              <span>Ready for Cloudflare Pages & GitHub</span>
+              <span>Independent Web Utility · Zero Storage</span>
             </div>
           </div>
 
-          {/* Quick Services */}
-          <div className="md:col-span-3 space-y-3">
+          {/* Quick Platform Downloaders */}
+          <div className="md:col-span-2 space-y-3">
             <h4 className="text-xs font-bold uppercase tracking-wider text-slate-900">
               Downloaders
             </h4>
@@ -54,50 +68,98 @@ export const Footer: React.FC<FooterProps> = ({
               <li>
                 <button
                   type="button"
-                  onClick={() => {
-                    onSelectPlatform('instagram');
-                    scrollToSection('media-input-section');
-                  }}
+                  onClick={() => handlePlatformClick('instagram')}
                   className="hover:text-purple-600 transition-colors cursor-pointer text-left"
                 >
-                  Instagram Downloader
+                  Instagram
                 </button>
               </li>
               <li>
                 <button
                   type="button"
-                  onClick={() => {
-                    onSelectPlatform('threads');
-                    scrollToSection('media-input-section');
-                  }}
+                  onClick={() => handlePlatformClick('threads')}
                   className="hover:text-blue-600 transition-colors cursor-pointer text-left"
                 >
-                  Threads Downloader
+                  Threads
                 </button>
               </li>
               <li>
                 <button
                   type="button"
-                  onClick={() => scrollToSection('how-it-works')}
-                  className="hover:text-indigo-600 transition-colors cursor-pointer text-left"
+                  onClick={() => handlePlatformClick('tiktok')}
+                  className="hover:text-slate-900 transition-colors cursor-pointer text-left"
                 >
-                  How It Works
+                  TikTok
                 </button>
               </li>
               <li>
                 <button
                   type="button"
-                  onClick={() => scrollToSection('features')}
+                  onClick={() => handlePlatformClick('all')}
                   className="hover:text-indigo-600 transition-colors cursor-pointer text-left"
                 >
-                  Core Features
+                  All Platforms
+                </button>
+              </li>
+            </ul>
+          </div>
+
+          {/* Guides & Support */}
+          <div className="md:col-span-3 space-y-3">
+            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-900">
+              Guides & Help
+            </h4>
+            <ul className="space-y-2 text-xs sm:text-sm">
+              <li>
+                <button
+                  type="button"
+                  onClick={() => handleRoute('how-to-use')}
+                  className="hover:text-indigo-600 transition-colors cursor-pointer text-left"
+                >
+                  How to Use MediaSave
+                </button>
+              </li>
+              <li>
+                <button
+                  type="button"
+                  onClick={() => handleRoute('troubleshooting')}
+                  className="hover:text-indigo-600 transition-colors cursor-pointer text-left"
+                >
+                  Troubleshooting Guide
+                </button>
+              </li>
+              <li>
+                <button
+                  type="button"
+                  onClick={() => handleRoute('faq')}
+                  className="hover:text-indigo-600 transition-colors cursor-pointer text-left"
+                >
+                  Frequently Asked Questions
+                </button>
+              </li>
+              <li>
+                <button
+                  type="button"
+                  onClick={() => handleRoute('about')}
+                  className="hover:text-indigo-600 transition-colors cursor-pointer text-left"
+                >
+                  About Us
+                </button>
+              </li>
+              <li>
+                <button
+                  type="button"
+                  onClick={() => handleRoute('contact')}
+                  className="hover:text-indigo-600 transition-colors cursor-pointer text-left"
+                >
+                  Contact & Support
                 </button>
               </li>
             </ul>
           </div>
 
           {/* Legal Links */}
-          <div className="md:col-span-4 space-y-3">
+          <div className="md:col-span-3 space-y-3">
             <h4 className="text-xs font-bold uppercase tracking-wider text-slate-900">
               Legal & Compliance
             </h4>
@@ -105,7 +167,7 @@ export const Footer: React.FC<FooterProps> = ({
               <li>
                 <button
                   type="button"
-                  onClick={() => onOpenLegalModal('terms')}
+                  onClick={() => handleRoute('terms')}
                   className="hover:text-slate-900 transition-colors cursor-pointer text-left font-medium"
                 >
                   Terms of Service
@@ -114,20 +176,20 @@ export const Footer: React.FC<FooterProps> = ({
               <li>
                 <button
                   type="button"
-                  onClick={() => onOpenLegalModal('privacy')}
+                  onClick={() => handleRoute('privacy')}
                   className="hover:text-slate-900 transition-colors cursor-pointer text-left font-medium"
                 >
-                  Privacy Policy
+                  Privacy Policy & Cookies
                 </button>
               </li>
               <li>
                 <button
                   type="button"
-                  onClick={() => onOpenLegalModal('copyright')}
+                  onClick={() => handleRoute('copyright')}
                   className="hover:text-slate-900 transition-colors cursor-pointer text-left font-medium flex items-center gap-1.5"
                 >
                   <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
-                  <span>Copyright Notice</span>
+                  <span>Copyright & DMCA</span>
                 </button>
               </li>
             </ul>
@@ -148,7 +210,7 @@ export const Footer: React.FC<FooterProps> = ({
           </p>
 
           <p className="text-center sm:text-right text-[11px]">
-            Independent utility. Not affiliated with or endorsed by Instagram, Threads, or Meta Platforms.
+            Independent utility. Not affiliated with, endorsed by, or sponsored by Instagram, Threads, Meta Platforms, or TikTok (ByteDance).
           </p>
         </div>
       </div>

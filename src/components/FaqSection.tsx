@@ -6,12 +6,12 @@ export const FaqSection: React.FC = () => {
 
   const faqs = [
     {
-      question: 'Which Instagram and Threads content types are supported?',
+      question: 'Which Instagram, Threads, and TikTok content types are supported?',
       answer:
-        'MediaSave is engineered to parse public Instagram Reels, standard single-image posts, multi-slide carousels, and Threads photos or video posts. Private account posts are strictly protected and cannot be retrieved.',
+        'MediaSave is engineered to parse public Instagram Reels, standard single-image posts, multi-slide carousels, Threads photos and videos, and TikTok MP4 videos and photo slideshows. Private account posts are strictly protected and cannot be retrieved.',
     },
     {
-      question: 'Do I need an Instagram or Threads account to use MediaSave?',
+      question: 'Do I need an account or login to use MediaSave?',
       answer:
         'No. MediaSave is completely client-accessible. You do not need an account, password, or login session to inspect publicly shared links.',
     },

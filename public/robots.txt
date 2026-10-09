@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+
+Sitemap: https://media-saver-9vs.pages.dev/sitemap.xml

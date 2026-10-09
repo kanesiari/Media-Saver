@@ -5,10 +5,16 @@
  */
 
 export const ALLOWED_HOST_PATTERNS = [
-  // Official Instagram CDN hosts
+  // Official Instagram & Threads CDN hosts
   /^scontent(?:-[a-zA-Z0-9-]+)*\.(?:cdninstagram\.com)$/i,
   /^scontent(?:\.[a-zA-Z0-9-]+)*\.(?:fbcdn\.net)$/i,
   /^(?:static|video)[a-zA-Z0-9-]*\.cdninstagram\.com$/i,
+
+  // Official TikTok CDN hosts & play redirect endpoints
+  /^(?:[a-zA-Z0-9-]+\.)*tiktokcdn(?:-[a-zA-Z0-9-]+)*\.com$/i,
+  /^(?:[a-zA-Z0-9-]+\.)*byteoversea\.com$/i,
+  /^(?:[a-zA-Z0-9-]+\.)*ibytedtos\.com$/i,
+  /^(?:www\.)?tiktok\.com$/i,
 ];
 
 export const ALLOWED_MIME_TYPES = [
@@ -164,14 +170,21 @@ export async function streamMediaDownload(
   }
 
   try {
+    const requestHeaders: Record<string, string> = {
+      'User-Agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      Accept: 'image/avif,image/webp,image/apng,image/svg+xml,image/*,video/*,*/*;q=0.8',
+    };
+
+    const targetUrlObj = new URL(mediaUrl);
+    if (targetUrlObj.hostname.includes('tiktok') || targetUrlObj.hostname.includes('byte')) {
+      requestHeaders['Referer'] = 'https://www.tiktok.com/';
+    }
+
     // Perform manual redirect check to prevent open redirect SSRF
     const upstreamRes = await fetch(mediaUrl, {
       method: 'GET',
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        Accept: 'image/avif,image/webp,image/apng,image/svg+xml,image/*,video/*,*/*;q=0.8',
-      },
+      headers: requestHeaders,
       redirect: 'manual',
     });
 

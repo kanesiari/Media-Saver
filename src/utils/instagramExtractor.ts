@@ -8,6 +8,7 @@
 import { AnalysisResponse, ExtractedMedia, VideoQualityOption } from '../types';
 import { isAllowedMediaHost } from './mediaDownloader';
 import { extractThreadsMedia } from './threadsExtractor';
+import { extractTiktokMedia, parseTiktokUrl } from './tiktokExtractor';
 
 /**
  * Accurately detects video resolution from surrounding dimensions metadata or URL parameters.
@@ -112,7 +113,7 @@ export function detectVideoResolution(
  * Validates and extracts shortcode from Instagram and Threads URLs
  */
 export function extractShortcode(rawUrl: string): {
-  platform: 'instagram' | 'threads' | 'unknown';
+  platform: 'instagram' | 'threads' | 'tiktok' | 'unknown';
   contentType: 'reel' | 'post' | 'video' | 'photo' | 'unknown';
   shortcode: string | null;
   author?: string;
@@ -161,6 +162,38 @@ export function extractShortcode(rawUrl: string): {
         return { platform: 'threads', contentType: 'post', shortcode: tMatch[1] };
       }
       return { platform: 'threads', contentType: 'unknown', shortcode: null };
+    }
+
+    if (
+      host.includes('tiktok.com') ||
+      host === 'vm.tiktok.com' ||
+      host === 'vt.tiktok.com'
+    ) {
+      const { id, author: tiktokAuthor, isPhotoPost } = parseTiktokUrl(urlToParse);
+      const isShortHost =
+        host === 'vm.tiktok.com' ||
+        host === 'vt.tiktok.com' ||
+        pathname.startsWith('/t/');
+
+      if (id) {
+        return {
+          platform: 'tiktok',
+          contentType: isPhotoPost ? 'photo' : 'video',
+          shortcode: id,
+          author: tiktokAuthor,
+        };
+      }
+
+      if (isShortHost) {
+        return {
+          platform: 'tiktok',
+          contentType: 'video',
+          shortcode: 'pending',
+          author: tiktokAuthor,
+        };
+      }
+
+      return { platform: 'tiktok', contentType: 'unknown', shortcode: null };
     }
 
     return { platform: 'unknown', contentType: 'unknown', shortcode: null };
@@ -539,7 +572,7 @@ export async function analyzePost(
       canonicalUrl: targetUrl,
       embedUrl: '',
       mediaList: [],
-      statusMessage: 'Invalid URL. Please provide a direct public Instagram or Threads post link.',
+      statusMessage: 'Invalid URL. Please provide a direct public Instagram, Threads, or TikTok post link.',
       error: 'Invalid or unsupported URL format.',
     };
   }
@@ -548,16 +581,69 @@ export async function analyzePost(
   const canonicalUrl =
     platform === 'instagram'
       ? `https://www.instagram.com/p/${shortcode}/`
-      : author
-      ? `https://www.threads.net/@${author}/post/${shortcode}`
-      : `https://www.threads.net/t/${shortcode}`;
+      : platform === 'threads'
+      ? author
+        ? `https://www.threads.net/@${author}/post/${shortcode}`
+        : `https://www.threads.net/t/${shortcode}`
+      : targetUrl;
 
   const embedUrl =
     platform === 'instagram'
       ? `https://www.instagram.com/p/${shortcode}/embed/captioned/`
-      : `https://www.threads.net/t/${shortcode}/embed`;
+      : platform === 'threads'
+      ? `https://www.threads.net/t/${shortcode}/embed`
+      : shortcode && shortcode !== 'pending'
+      ? `https://www.tiktok.com/player/v1/${shortcode}`
+      : '';
 
   // Step 1: Attempt direct public media extraction
+  if (platform === 'tiktok') {
+    const directTiktokMedia = await extractTiktokMedia(targetUrl);
+    if (directTiktokMedia && directTiktokMedia.mediaList.length > 0) {
+      return {
+        success: true,
+        urlValid: true,
+        postVerified: true,
+        previewAvailable: true,
+        hasDirectDownload: true, // REAL DIRECT DOWNLOAD IS AVAILABLE!
+        platform: 'tiktok',
+        contentType: directTiktokMedia.contentType,
+        shortcode: directTiktokMedia.shortcode,
+        canonicalUrl: directTiktokMedia.canonicalUrl,
+        embedUrl: directTiktokMedia.embedUrl,
+        author: directTiktokMedia.author,
+        caption: directTiktokMedia.caption,
+        mediaList: directTiktokMedia.mediaList,
+        statusMessage: `TikTok ${directTiktokMedia.contentType} verified. ${directTiktokMedia.mediaList.length} downloadable media file(s) ready.`,
+        technicalDetails: {
+          metaGraphApiConfigured: false,
+          directStreamAvailable: true,
+          imageDownloadAvailable: directTiktokMedia.mediaList.some((m) => m.type === 'image'),
+          videoDownloadAvailable: directTiktokMedia.mediaList.some((m) => m.type === 'video'),
+          serverIpRestrictedByMeta: false,
+          recommendedAccess: 'Direct Streaming Download',
+        },
+      };
+    } else {
+      return {
+        success: false,
+        urlValid: true,
+        postVerified: false,
+        previewAvailable: false,
+        hasDirectDownload: false,
+        platform: 'tiktok',
+        contentType: contentType || 'video',
+        shortcode: shortcode || '',
+        canonicalUrl: targetUrl,
+        embedUrl: shortcode && shortcode !== 'pending' ? `https://www.tiktok.com/player/v1/${shortcode}` : '',
+        mediaList: [],
+        statusMessage:
+          'Unable to extract public media from this TikTok post. The post may be private, age-restricted, removed, or protected by security verification.',
+        error: 'TikTok media extraction failed or restricted.',
+      };
+    }
+  }
+
   if (platform === 'threads') {
     const directThreadsMedia = await extractThreadsMedia(shortcode, author);
     if (directThreadsMedia && directThreadsMedia.mediaList.length > 0) {

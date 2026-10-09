@@ -47,7 +47,7 @@ export default {
               previewAvailable: false,
               hasDirectDownload: false,
               error: 'No URL provided.',
-              statusMessage: 'Please provide a valid Instagram or Threads URL.',
+              statusMessage: 'Please provide a valid Instagram, Threads, or TikTok URL.',
             }),
             {
               status: 400,

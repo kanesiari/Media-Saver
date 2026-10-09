@@ -1,6 +1,7 @@
 import React from 'react';
 import { X, ShieldCheck, Scale, Lock, FileText, ExternalLink } from 'lucide-react';
 import { LegalModalType } from '../types';
+import { CONTACT_EMAIL } from '../constants';
 
 interface LegalModalProps {
   activeModal: LegalModalType;
@@ -98,7 +99,7 @@ export const LegalModal: React.FC<LegalModalProps> = ({
               <div>
                 <h4 className="font-bold text-slate-900 mb-1">4. Disclaimer of Warranties</h4>
                 <p>
-                  The service is provided on an &quot;as is&quot; and &quot;as available&quot; basis without warranties of any kind. MediaSave is an independent web application and is not affiliated with, endorsed by, or sponsored by Instagram, Threads, or Meta Platforms, Inc.
+                  The service is provided on an &quot;as is&quot; and &quot;as available&quot; basis without warranties of any kind. MediaSave is an independent web application and is not affiliated with, endorsed by, or sponsored by Instagram, Threads, Meta Platforms, Inc., or ByteDance Ltd. (TikTok).
                 </p>
               </div>
             </div>
@@ -107,23 +108,23 @@ export const LegalModal: React.FC<LegalModalProps> = ({
           {activeModal === 'privacy' && (
             <div className="space-y-4">
               <div>
-                <h4 className="font-bold text-slate-900 mb-1">1. Zero User Tracking & No Log Policy</h4>
+                <h4 className="font-bold text-slate-900 mb-1">1. User Privacy & Non-Collection Principle</h4>
                 <p>
-                  MediaSave is committed to user privacy. We do not require account registration, passwords, social logins, or personal contact details.
+                  MediaSave is designed around user privacy. We do not require account registration, passwords, social logins, or personal contact details to inspect or download public media.
                 </p>
               </div>
 
               <div>
                 <h4 className="font-bold text-slate-900 mb-1">2. URL Processing</h4>
                 <p>
-                  URLs pasted into the input field are processed in your browser client. We do not maintain a permanent database recording your browsing patterns or requested links.
+                  URLs pasted into the input field are processed transiently to inspect public metadata. We do not maintain a permanent database storing your submitted URLs or your downloaded media.
                 </p>
               </div>
 
               <div>
-                <h4 className="font-bold text-slate-900 mb-1">3. Cookies and Local Storage</h4>
+                <h4 className="font-bold text-slate-900 mb-1">3. Cookies & Advertising Disclosures</h4>
                 <p>
-                  MediaSave does not deploy third-party advertising cookies or cross-site tracking pixels. Local browser preferences (such as platform selection) may be retained locally in your browser session for usability.
+                  MediaSave uses browser local storage only to remember functional preferences (such as platform selection). However, third-party advertising partners (including Google AdSense) may deploy cookies to serve ads based on prior visits. You can opt out of personalized advertising via Google Ads Settings or aboutads.info as detailed in our full Privacy Policy.
                 </p>
               </div>
 
@@ -160,7 +161,14 @@ export const LegalModal: React.FC<LegalModalProps> = ({
               <div>
                 <h4 className="font-bold text-slate-900 mb-1">3. DMCA & Notice of Infringement</h4>
                 <p>
-                  Because MediaSave does not host, upload, or store media files on its servers, removing public media requires contacting the originating platform or host directly. If you believe any aspect of our service inadvertently infringes your rights, please reach out with details.
+                  Because MediaSave does not host, upload, or store media files on its servers, removing public media requires contacting the originating platform or host directly. If you believe any aspect of our service inadvertently infringes your rights, please reach out via email to{' '}
+                  <a
+                    href={`mailto:${CONTACT_EMAIL}`}
+                    className="text-indigo-600 hover:text-indigo-800 underline font-semibold"
+                  >
+                    {CONTACT_EMAIL}
+                  </a>{' '}
+                  with details.
                 </p>
               </div>
             </div>

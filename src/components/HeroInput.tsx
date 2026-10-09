@@ -54,7 +54,7 @@ export const HeroInput: React.FC<HeroInputProps> = ({
     }
   };
 
-  const handleSampleClick = (sampleUrl: string, platform: 'instagram' | 'threads') => {
+  const handleSampleClick = (sampleUrl: string, platform: Platform) => {
     setUrl(sampleUrl);
     setSelectedPlatform(platform);
     onAnalyze(sampleUrl);
@@ -84,7 +84,7 @@ export const HeroInput: React.FC<HeroInputProps> = ({
 
         {/* Short Service Intro */}
         <p className="text-base sm:text-lg md:text-xl text-slate-600 max-w-2xl mx-auto leading-relaxed mb-10 font-normal">
-          Inspect, preview, and organize publicly shared photos, reels, and video posts from Instagram and Threads with modern simplicity.
+          Inspect, preview, and organize publicly shared photos, reels, and video posts from Instagram, Threads, and TikTok with modern simplicity.
         </p>
 
         {/* Platform Selector Tabs */}
@@ -123,6 +123,18 @@ export const HeroInput: React.FC<HeroInputProps> = ({
           >
             <span className="w-2 h-2 rounded-full bg-blue-600" />
             Threads
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelectedPlatform('tiktok')}
+            className={`px-4 py-2 text-xs sm:text-sm font-semibold rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+              selectedPlatform === 'tiktok'
+                ? 'bg-white text-slate-900 shadow-sm'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <span className="w-2 h-2 rounded-full bg-cyan-400" />
+            TikTok
           </button>
         </div>
 

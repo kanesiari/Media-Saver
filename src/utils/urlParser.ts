@@ -1,4 +1,5 @@
 import { ParsedUrlData } from '../types';
+import { parseTiktokUrl } from './tiktokExtractor';
 
 export const SAMPLE_URLS = [
   {
@@ -15,6 +16,11 @@ export const SAMPLE_URLS = [
     label: 'Threads Post (Photo)',
     url: 'https://www.threads.net/@zuck/post/Ddt4W2Qx-D1',
     platform: 'threads' as const,
+  },
+  {
+    label: 'TikTok Video',
+    url: 'https://www.tiktok.com/@tiktok/video/7106594312292453675',
+    platform: 'tiktok' as const,
   },
 ];
 
@@ -136,12 +142,55 @@ export function parseSocialUrl(input: string): ParsedUrlData {
       };
     }
 
+    // TikTok check
+    if (
+      hostname.includes('tiktok.com') ||
+      hostname === 'vm.tiktok.com' ||
+      hostname === 'vt.tiktok.com'
+    ) {
+      const { id, author, isPhotoPost } = parseTiktokUrl(trimmed);
+      const isShort =
+        hostname === 'vm.tiktok.com' ||
+        hostname === 'vt.tiktok.com' ||
+        pathname.startsWith('/t/');
+
+      if (id) {
+        return {
+          isValid: true,
+          rawUrl: trimmed,
+          platform: 'tiktok',
+          contentType: isPhotoPost ? 'photo' : 'video',
+          id,
+          author,
+        };
+      }
+
+      if (isShort) {
+        return {
+          isValid: true,
+          rawUrl: trimmed,
+          platform: 'tiktok',
+          contentType: 'video',
+        };
+      }
+
+      return {
+        isValid: false,
+        rawUrl: trimmed,
+        platform: 'tiktok',
+        contentType: 'unknown',
+        errorMessage:
+          'The link looks like a TikTok URL, but no specific video or photo ID was found. Please copy a direct link to a public TikTok video or photo post.',
+      };
+    }
+
     return {
       isValid: false,
       rawUrl: trimmed,
       platform: 'unknown',
       contentType: 'unknown',
-      errorMessage: 'Unsupported domain. MediaSave supports public URLs from Instagram (instagram.com) and Threads (threads.net).',
+      errorMessage:
+        'Unsupported domain. MediaSave supports public URLs from Instagram (instagram.com), Threads (threads.net), and TikTok (tiktok.com).',
     };
   } catch {
     return {
