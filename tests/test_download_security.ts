@@ -38,6 +38,16 @@ async function runAllTests() {
   );
 
   assert(
+    'Permits regional fbcdn.net host with cluster dash (scontent-iad3-1.xx.fbcdn.net)',
+    isAllowedMediaHost('https://scontent-iad3-1.xx.fbcdn.net/v/t51/photo.jpg').allowed === true
+  );
+
+  assert(
+    'Permits regional cdninstagram host with cluster dash (scontent-iad3-1.xx.cdninstagram.com)',
+    isAllowedMediaHost('https://scontent-iad3-1.xx.cdninstagram.com/v/t51/photo.jpg').allowed === true
+  );
+
+  assert(
     'Blocks plain HTTP protocol',
     isAllowedMediaHost('http://scontent.cdninstagram.com/v/t51/photo.jpg').allowed === false
   );

@@ -38,7 +38,6 @@ export const MediaPreviewSection: React.FC<MediaPreviewSectionProps> = ({
   const [loadTimedOut, setLoadTimedOut] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedEmbed, setCopiedEmbed] = useState(false);
-  const [downloadingItemUrl, setDownloadingItemUrl] = useState<string | null>(null);
   const [downloadMessage, setDownloadMessage] = useState<string | null>(null);
   const [selectedQualityByItem, setSelectedQualityByItem] = useState<Record<number, string>>({});
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
@@ -50,6 +49,11 @@ export const MediaPreviewSection: React.FC<MediaPreviewSectionProps> = ({
     failCount: number;
   } | null>(null);
 
+  // Per-item independent download states to prevent state sharing and closures bugs
+  type ItemDownloadState = 'idle' | 'downloading' | 'completed' | 'started' | 'error';
+  const [downloadStates, setDownloadStates] = useState<Record<number, ItemDownloadState>>({});
+  const [downloadErrors, setDownloadErrors] = useState<Record<number, string>>({});
+
   useEffect(() => {
     setIframeLoaded(false);
     setLoadTimedOut(false);
@@ -57,6 +61,8 @@ export const MediaPreviewSection: React.FC<MediaPreviewSectionProps> = ({
     setSelectedQualityByItem({});
     setIsBatchDownloading(false);
     setBatchProgress(null);
+    setDownloadStates({});
+    setDownloadErrors({});
 
     if (analysisData?.mediaList && analysisData.mediaList.length > 0) {
       setSelectedIndices(new Set(analysisData.mediaList.map((_, i) => i)));
@@ -113,60 +119,152 @@ export const MediaPreviewSection: React.FC<MediaPreviewSectionProps> = ({
   const downloadSingleBlob = async (targetUrl: string, filename: string): Promise<boolean> => {
     const response = await fetch(targetUrl);
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
+      let errMsg = `HTTP ${response.status} 오류`;
+      try {
+        const errJson = await response.json();
+        if (errJson?.error) errMsg = `HTTP ${response.status}: ${errJson.error}`;
+      } catch {
+        // ignore
+      }
+      const httpErr = new Error(errMsg);
+      (httpErr as any).isHttpError = true;
+      (httpErr as any).status = response.status;
+      throw httpErr;
     }
+
+    const contentType = (response.headers.get('content-type') || '').toLowerCase();
+    // Reject HTML error pages or JSON payloads masquerading as success
+    if (contentType.includes('text/html')) {
+      throw new Error('서버가 미디어 파일 대신 HTML 오류 페이지를 반환했습니다.');
+    }
+    if (contentType.includes('application/json')) {
+      let errMsg = '서버가 오류 메시지를 반환했습니다.';
+      try {
+        const json = await response.json();
+        if (json?.error) errMsg = json.error;
+      } catch {
+        // ignore
+      }
+      throw new Error(errMsg);
+    }
+
     const blob = await response.blob();
+    if (!blob || blob.size === 0) {
+      throw new Error('수신된 파일의 크기가 0바이트입니다.');
+    }
+
     const objectUrl = URL.createObjectURL(blob);
     const a = document.createElement('a');
+    a.style.display = 'none';
     a.href = objectUrl;
     a.download = filename;
     document.body.appendChild(a);
     a.click();
     setTimeout(() => {
-      document.body.removeChild(a);
-      URL.revokeObjectURL(objectUrl);
-    }, 1500);
+      try {
+        if (document.body.contains(a)) {
+          document.body.removeChild(a);
+        }
+        URL.revokeObjectURL(objectUrl);
+      } catch {
+        // ignore
+      }
+    }, 1200);
     return true;
   };
 
-  const handleFileDownload = async (item: ExtractedMedia, itemIndex = 0) => {
-    let downloadTarget = item.downloadUrl || item.url;
+  const handleFileDownload = async (item: ExtractedMedia, itemIndex: number) => {
+    const slideNum = item.slideIndex || itemIndex + 1;
+    const ext = item.type === 'video' ? 'mp4' : 'jpg';
+    const defaultFilename = `MediaSave_${analysisData?.platform || 'instagram'}_${analysisData?.shortcode || Date.now()}_slide_${slideNum}.${ext}`;
 
-    // If video has multiple quality options, retrieve user selected stream
+    // Resolve target stream URL
+    let rawUrl = item.url;
     if (item.type === 'video' && item.qualityOptions && item.qualityOptions.length > 0) {
       const selectedId = selectedQualityByItem[itemIndex] || item.qualityOptions[0].id;
-      const matchedQuality = item.qualityOptions.find((q) => q.id === selectedId) || item.qualityOptions[0];
-      downloadTarget = matchedQuality.downloadUrl || matchedQuality.url;
+      const matched = item.qualityOptions.find((q) => q.id === selectedId) || item.qualityOptions[0];
+      rawUrl = matched.url;
     }
 
-    const slideSuffix = item.slideIndex ? `_slide_${item.slideIndex}` : '';
-    const defaultFilename = `MediaSave_${analysisData?.platform || 'instagram'}_${analysisData?.shortcode || Date.now()}${slideSuffix}.${item.type === 'video' ? 'mp4' : 'jpg'}`;
+    // Always route through /api/download proxy to avoid CORS errors on third-party CDNs
+    let downloadTarget = item.downloadUrl;
+    if (!downloadTarget || !downloadTarget.startsWith('/api/download')) {
+      downloadTarget = `/api/download?url=${encodeURIComponent(rawUrl)}&filename=${encodeURIComponent(defaultFilename)}`;
+    }
 
-    setDownloadingItemUrl(downloadTarget);
-    setDownloadMessage('Connecting to download proxy...');
+    setDownloadStates((prev) => ({ ...prev, [itemIndex]: 'downloading' }));
+    setDownloadErrors((prev) => {
+      const copy = { ...prev };
+      delete copy[itemIndex];
+      return copy;
+    });
+    setDownloadMessage(`항목 #${slideNum} 다운로드 준비 중...`);
 
     try {
-      // 1. Primary method: Fetch binary blob directly from secure streaming proxy
       await downloadSingleBlob(downloadTarget, defaultFilename);
-      setDownloadMessage('File downloaded successfully!');
+      setDownloadStates((prev) => ({ ...prev, [itemIndex]: 'completed' }));
+      setDownloadMessage(`항목 #${slideNum} 파일이 성공적으로 다운로드되었습니다!`);
+      setTimeout(() => {
+        setDownloadStates((prev) => (prev[itemIndex] === 'completed' ? { ...prev, [itemIndex]: 'idle' } : prev));
+      }, 3500);
     } catch (err: any) {
-      console.warn('Direct blob download error, triggering fallback anchor navigation:', err);
-      // 2. Fallback method: Direct anchor navigation / new tab download
-      try {
-        const fallbackA = document.createElement('a');
-        fallbackA.href = downloadTarget;
-        fallbackA.download = defaultFilename;
-        fallbackA.target = '_blank';
-        document.body.appendChild(fallbackA);
-        fallbackA.click();
-        document.body.removeChild(fallbackA);
-        setDownloadMessage('Download initiated via browser fallback.');
-      } catch {
-        setDownloadMessage(`Download failed: ${err?.message || 'Network error'}`);
+      console.warn(`Direct blob download failed for slide #${slideNum}:`, err);
+      const errMessage = String(err?.message || '');
+      const isExplicitServerError =
+        Boolean(err?.isHttpError) ||
+        errMessage.includes('HTTP') ||
+        errMessage.includes('HTML') ||
+        errMessage.includes('서버') ||
+        errMessage.includes('MIME') ||
+        errMessage.includes('0바이트') ||
+        errMessage.includes('400') ||
+        errMessage.includes('403') ||
+        errMessage.includes('500') ||
+        errMessage.includes('502');
+
+      if (isExplicitServerError) {
+        // Explicit 4xx, 5xx, or format error from server: NEVER mark completed or started!
+        setDownloadStates((prev) => ({ ...prev, [itemIndex]: 'error' }));
+        setDownloadErrors((prev) => ({ ...prev, [itemIndex]: err?.message || '다운로드 실패' }));
+        setDownloadMessage(`항목 #${slideNum} 다운로드 실패: ${err?.message || '서버 오류'}`);
+        setTimeout(() => {
+          setDownloadStates((prev) => (prev[itemIndex] === 'error' ? { ...prev, [itemIndex]: 'idle' } : prev));
+        }, 4000);
+      } else {
+        // Network/CORS fallback: try browser native anchor navigation
+        try {
+          const fallbackA = document.createElement('a');
+          fallbackA.style.display = 'none';
+          fallbackA.href = downloadTarget;
+          fallbackA.download = defaultFilename;
+          fallbackA.target = '_blank';
+          document.body.appendChild(fallbackA);
+          fallbackA.click();
+          setTimeout(() => {
+            if (document.body.contains(fallbackA)) document.body.removeChild(fallbackA);
+          }, 1000);
+
+          // DO NOT mark completed! Use 'started' to clearly notify user that local save cannot be verified
+          setDownloadStates((prev) => ({ ...prev, [itemIndex]: 'started' }));
+          setDownloadMessage(`항목 #${slideNum} 브라우저 다운로드를 요청했습니다. (저장 완료 여부는 확인할 수 없습니다)`);
+          setTimeout(() => {
+            setDownloadStates((prev) => (prev[itemIndex] === 'started' ? { ...prev, [itemIndex]: 'idle' } : prev));
+          }, 4000);
+        } catch {
+          setDownloadStates((prev) => ({ ...prev, [itemIndex]: 'error' }));
+          setDownloadErrors((prev) => ({ ...prev, [itemIndex]: err?.message || '다운로드 실패' }));
+          setDownloadMessage(`항목 #${slideNum} 다운로드 실패: ${err?.message || '네트워크 오류'}`);
+          setTimeout(() => {
+            setDownloadStates((prev) => (prev[itemIndex] === 'error' ? { ...prev, [itemIndex]: 'idle' } : prev));
+          }, 4000);
+        }
       }
     } finally {
-      setDownloadingItemUrl(null);
-      setTimeout(() => setDownloadMessage(null), 4000);
+      // Safety guarantee: only resets UI loading indication if stuck in downloading, NEVER disguises as completed or cancels download
+      setTimeout(() => {
+        setDownloadStates((prev) => (prev[itemIndex] === 'downloading' ? { ...prev, [itemIndex]: 'idle' } : prev));
+      }, 5000);
+      setTimeout(() => setDownloadMessage(null), 5000);
     }
   };
 
@@ -176,6 +274,7 @@ export const MediaPreviewSection: React.FC<MediaPreviewSectionProps> = ({
     const indicesToDownload = Array.from(selectedIndices).sort((a, b) => a - b);
     setIsBatchDownloading(true);
     let successCount = 0;
+    let fallbackCount = 0;
     let failCount = 0;
 
     setBatchProgress({
@@ -184,23 +283,28 @@ export const MediaPreviewSection: React.FC<MediaPreviewSectionProps> = ({
       successCount: 0,
       failCount: 0,
     });
-    setDownloadMessage(`Starting batch download of ${indicesToDownload.length} files...`);
+    setDownloadMessage(`총 ${indicesToDownload.length}개 파일 일괄 다운로드를 시작합니다...`);
 
     for (let i = 0; i < indicesToDownload.length; i++) {
       const idx = indicesToDownload[i];
       const item = analysisData.mediaList[idx];
       if (!item) continue;
 
-      let downloadTarget = item.downloadUrl || item.url;
-      if (item.type === 'video' && item.qualityOptions && item.qualityOptions.length > 0) {
-        const selectedId = selectedQualityByItem[idx] || item.qualityOptions[0].id;
-        const matched = item.qualityOptions.find((q) => q.id === selectedId) || item.qualityOptions[0];
-        downloadTarget = matched.downloadUrl || matched.url;
-      }
-
       const slideNum = item.slideIndex || idx + 1;
       const ext = item.type === 'video' ? 'mp4' : 'jpg';
       const filename = `MediaSave_${analysisData.platform || 'instagram'}_${analysisData.shortcode || Date.now()}_slide_${slideNum}.${ext}`;
+
+      let rawUrl = item.url;
+      if (item.type === 'video' && item.qualityOptions && item.qualityOptions.length > 0) {
+        const selectedId = selectedQualityByItem[idx] || item.qualityOptions[0].id;
+        const matched = item.qualityOptions.find((q) => q.id === selectedId) || item.qualityOptions[0];
+        rawUrl = matched.url;
+      }
+
+      let downloadTarget = item.downloadUrl;
+      if (!downloadTarget || !downloadTarget.startsWith('/api/download')) {
+        downloadTarget = `/api/download?url=${encodeURIComponent(rawUrl)}&filename=${encodeURIComponent(filename)}`;
+      }
 
       setBatchProgress({
         current: i + 1,
@@ -208,25 +312,49 @@ export const MediaPreviewSection: React.FC<MediaPreviewSectionProps> = ({
         successCount,
         failCount,
       });
-      setDownloadMessage(`Downloading item ${i + 1}/${indicesToDownload.length}: Slide ${slideNum}...`);
+      setDownloadStates((prev) => ({ ...prev, [idx]: 'downloading' }));
+      setDownloadMessage(`다운로드 진행 중 (${i + 1}/${indicesToDownload.length}): 슬라이드 #${slideNum}...`);
 
       try {
         await downloadSingleBlob(downloadTarget, filename);
         successCount++;
-      } catch (err) {
+        setDownloadStates((prev) => ({ ...prev, [idx]: 'completed' }));
+      } catch (err: any) {
         console.warn(`Failed to download slide ${slideNum}:`, err);
-        // Fallback: direct anchor navigation
-        try {
-          const a = document.createElement('a');
-          a.href = downloadTarget;
-          a.download = filename;
-          a.target = '_blank';
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          successCount++;
-        } catch {
+        const errMessage = String(err?.message || '');
+        const isExplicitServerError =
+          errMessage.includes('HTTP') ||
+          errMessage.includes('HTML') ||
+          errMessage.includes('서버') ||
+          errMessage.includes('MIME') ||
+          errMessage.includes('0바이트') ||
+          errMessage.includes('400') ||
+          errMessage.includes('403') ||
+          errMessage.includes('500');
+
+        if (isExplicitServerError) {
           failCount++;
+          setDownloadStates((prev) => ({ ...prev, [idx]: 'error' }));
+        } else {
+          // Fallback: direct anchor navigation
+          try {
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = downloadTarget;
+            a.download = filename;
+            a.target = '_blank';
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(() => {
+              if (document.body.contains(a)) document.body.removeChild(a);
+            }, 1000);
+            // Count as fallback / started, NOT verified success!
+            fallbackCount++;
+            setDownloadStates((prev) => ({ ...prev, [idx]: 'started' }));
+          } catch {
+            failCount++;
+            setDownloadStates((prev) => ({ ...prev, [idx]: 'error' }));
+          }
         }
       }
 
@@ -237,15 +365,17 @@ export const MediaPreviewSection: React.FC<MediaPreviewSectionProps> = ({
         failCount,
       });
 
-      // 600ms throttle interval between consecutive browser downloads
+      // Throttle interval between consecutive browser downloads to prevent browser drops
       if (i < indicesToDownload.length - 1) {
         await new Promise((r) => setTimeout(r, 600));
       }
     }
 
     setIsBatchDownloading(false);
-    if (failCount === 0) {
+    if (failCount === 0 && fallbackCount === 0) {
       setDownloadMessage(`일괄 다운로드 완료! 총 ${successCount}개 파일이 성공적으로 저장되었습니다.`);
+    } else if (fallbackCount > 0) {
+      setDownloadMessage(`일괄 다운로드 처리: ${successCount}개 확인 완료, ${fallbackCount}개 브라우저 위임(확인 불가)${failCount > 0 ? `, ${failCount}개 실패` : ''}.`);
     } else {
       setDownloadMessage(`일괄 다운로드 완료: ${successCount}개 성공, ${failCount}개 실패.`);
     }
@@ -561,134 +691,241 @@ export const MediaPreviewSection: React.FC<MediaPreviewSectionProps> = ({
                         </div>
                       )}
 
-                      {/* Items List */}
-                      <div className="space-y-2">
-                        {analysisData.mediaList.map((item, idx) => (
-                          <div
-                            key={idx}
-                            className={`bg-white p-3.5 sm:p-4 rounded-xl border transition-all space-y-2.5 ${
-                              selectedIndices.has(idx)
-                                ? 'border-purple-300 ring-1 ring-purple-100 shadow-xs'
-                                : 'border-slate-200 shadow-2xs'
-                            }`}
-                          >
-                            <div className="flex items-center justify-between gap-3">
-                              <div className="flex items-center gap-2.5 min-w-0">
-                                {/* Checkbox (When carousel / multi-item) */}
-                                {analysisData.mediaList.length > 1 && (
-                                  <button
-                                    type="button"
-                                    onClick={() => toggleSelectItem(idx)}
-                                    disabled={isBatchDownloading}
-                                    className="text-slate-400 hover:text-purple-600 transition-colors cursor-pointer shrink-0 disabled:opacity-50"
-                                    title={selectedIndices.has(idx) ? '선택 해제' : '선택'}
-                                  >
-                                    {selectedIndices.has(idx) ? (
-                                      <CheckSquare className="w-5 h-5 text-purple-600" />
-                                    ) : (
-                                      <Square className="w-5 h-5 text-slate-300" />
-                                    )}
-                                  </button>
-                                )}
+                      {/* Items List (Carousel / Individual Cards) */}
+                      <div className="space-y-4">
+                        {analysisData.mediaList.map((item, idx) => {
+                          const slideNum = item.slideIndex || idx + 1;
+                          const isSelected = selectedIndices.has(idx);
+                          const currentStatus = downloadStates[idx] || 'idle';
+                          const isDownloadingThis = currentStatus === 'downloading';
+                          const isCompletedThis = currentStatus === 'completed';
+                          const isStartedThis = currentStatus === 'started';
+                          const isErrorThis = currentStatus === 'error';
+                          const currentError = downloadErrors[idx];
+                          const itemUniqueKey = item.id || `media-slide-${slideNum}-${idx}`;
 
-                                {/* Thumbnail preview if available */}
-                                {item.previewUrl ? (
-                                  <div className="w-11 h-11 rounded-lg bg-slate-100 border border-slate-200 overflow-hidden shrink-0 relative">
-                                    <img
-                                      src={item.previewUrl}
-                                      alt={item.label || 'Media preview'}
-                                      className="w-full h-full object-cover"
-                                      loading="lazy"
-                                    />
-                                    {item.type === 'video' && (
-                                      <div className="absolute inset-0 bg-black/30 flex items-center justify-center">
-                                        <Film className="w-3.5 h-3.5 text-white" />
-                                      </div>
-                                    )}
-                                  </div>
-                                ) : item.type === 'video' ? (
-                                  <div className="w-11 h-11 rounded-lg bg-purple-50 border border-purple-200 flex items-center justify-center shrink-0">
-                                    <Film className="w-5 h-5 text-purple-600" />
-                                  </div>
-                                ) : (
-                                  <div className="w-11 h-11 rounded-lg bg-blue-50 border border-blue-200 flex items-center justify-center shrink-0">
-                                    <ImageIcon className="w-5 h-5 text-blue-600" />
-                                  </div>
-                                )}
+                          return (
+                            <div
+                              key={itemUniqueKey}
+                              className={`bg-white rounded-2xl border transition-all overflow-hidden ${
+                                isSelected
+                                  ? 'border-purple-300 ring-2 ring-purple-100 shadow-sm'
+                                  : 'border-slate-200 shadow-2xs'
+                              }`}
+                            >
+                              {/* 1. Header: Slide Number & Status Badges */}
+                              <div className="bg-slate-50/80 px-4 py-3 border-b border-slate-100 flex items-center justify-between gap-3">
+                                <div className="flex items-center gap-2.5">
+                                  {analysisData.mediaList.length > 1 && (
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleSelectItem(idx)}
+                                      disabled={isBatchDownloading}
+                                      className="text-slate-400 hover:text-purple-600 transition-colors cursor-pointer shrink-0 disabled:opacity-50"
+                                      title={isSelected ? '일괄 다운로드 선택 해제' : '일괄 다운로드 선택'}
+                                    >
+                                      {isSelected ? (
+                                        <CheckSquare className="w-5 h-5 text-purple-600" />
+                                      ) : (
+                                        <Square className="w-5 h-5 text-slate-300" />
+                                      )}
+                                    </button>
+                                  )}
 
-                                <div className="min-w-0">
-                                  <div className="flex items-center gap-1.5 flex-wrap">
-                                    {analysisData.mediaList.length > 1 && (
-                                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-700">
-                                        #{item.slideIndex || idx + 1}
-                                      </span>
-                                    )}
-                                    <span className="text-xs font-bold text-slate-800 truncate">
-                                      {item.label || (item.type === 'video' ? 'Video File' : 'Photo File')}
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs font-bold px-2 py-0.5 rounded-md bg-purple-100/80 text-purple-800 border border-purple-200/50">
+                                      #{slideNum}
+                                    </span>
+                                    <span className="text-xs font-semibold text-slate-700">
+                                      {analysisData.mediaList.length > 1 ? `슬라이드 ${slideNum}` : '미디어 파일'}
                                     </span>
                                   </div>
-                                  <span className="text-[11px] text-slate-400 block mt-0.5 truncate">
-                                    {item.resolution} {item.mimeType ? `· ${item.mimeType}` : ''}
-                                  </span>
                                 </div>
-                              </div>
 
-                              <button
-                                type="button"
-                                onClick={() => handleFileDownload(item, idx)}
-                                disabled={Boolean(downloadingItemUrl) || isBatchDownloading}
-                                className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 transition-all flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50 shrink-0"
-                              >
-                                <Download className="w-3.5 h-3.5" />
-                                <span>{downloadingItemUrl === (item.downloadUrl || item.url) ? '...' : 'Download'}</span>
-                              </button>
-                            </div>
-
-                            {/* Video Quality Selector / Resolution Status */}
-                            {item.type === 'video' && (
-                              <div className="pt-2 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 text-xs">
                                 <div className="flex items-center gap-2">
-                                  <span className="font-semibold text-slate-600 text-[11px]">화질 선택:</span>
-                                  {item.qualityOptions && item.qualityOptions.length > 1 ? (
-                                    <select
-                                      value={selectedQualityByItem[idx] || item.qualityOptions[0].id}
-                                      onChange={(e) =>
-                                        setSelectedQualityByItem((prev) => ({ ...prev, [idx]: e.target.value }))
-                                      }
-                                      className="bg-slate-50 border border-slate-300 text-slate-800 text-xs rounded-md px-2 py-1 focus:ring-1 focus:ring-purple-500 outline-none cursor-pointer"
-                                    >
-                                      {item.qualityOptions.map((opt) => (
-                                        <option key={opt.id} value={opt.id}>
-                                          {opt.label} ({opt.resolution})
-                                        </option>
-                                      ))}
-                                    </select>
-                                  ) : (
-                                    <span
-                                      className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold ${
-                                        item.resolution === '해상도 확인 불가'
-                                          ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                                          : 'bg-purple-50 text-purple-700 border border-purple-200'
-                                      }`}
-                                    >
-                                      {item.resolution === '해상도 확인 불가'
-                                        ? '해상도 확인 불가 (기본 스트림)'
-                                        : `${item.resolution} · 제공 화질`}
+                                  {/* Media Type Badge */}
+                                  <span
+                                    className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1 ${
+                                      item.type === 'video'
+                                        ? 'bg-purple-50 text-purple-700 border border-purple-200'
+                                        : 'bg-blue-50 text-blue-700 border border-blue-200'
+                                    }`}
+                                  >
+                                    {item.type === 'video' ? (
+                                      <>
+                                        <Film className="w-3 h-3 text-purple-600" />
+                                        <span>동영상 (MP4)</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <ImageIcon className="w-3 h-3 text-blue-600" />
+                                        <span>사진 (JPG)</span>
+                                      </>
+                                    )}
+                                  </span>
+
+                                  {item.verified && (
+                                    <span className="hidden sm:inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200/60">
+                                      <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                      <span>검증 완료</span>
                                     </span>
                                   )}
                                 </div>
-
-                                <p className="text-[10.5px] text-slate-400">
-                                  {item.qualityOptions && item.qualityOptions.length > 1
-                                    ? '서버에서 실제 확보된 서로 다른 화질 스트림 중 선택하여 다운로드합니다.'
-                                    : item.resolution === '해상도 확인 불가'
-                                    ? '메타데이터에서 정확한 픽셀 해상도를 확인할 수 없어 원본 기본 스트림으로 제공됩니다.'
-                                    : 'Instagram 공개 배포 정책에 따라 제공되는 단일 720p 원본 스트림입니다. (1080p는 공개 웹에서 별도 제공되지 않음)'}
-                                </p>
                               </div>
-                            )}
-                          </div>
-                        ))}
+
+                              <div className="p-4 sm:p-5 space-y-4">
+                                {/* 2. Media Preview */}
+                                <div className="w-full bg-slate-900/5 rounded-xl border border-slate-200/80 overflow-hidden relative flex items-center justify-center min-h-[200px] max-h-[360px]">
+                                  {item.previewUrl ? (
+                                    item.type === 'video' ? (
+                                      <div className="relative w-full h-[240px] bg-slate-950 flex items-center justify-center group">
+                                        <img
+                                          src={item.previewUrl}
+                                          alt={item.label || `슬라이드 #${slideNum} 동영상 미리보기`}
+                                          className="w-full h-full object-contain"
+                                          loading="lazy"
+                                        />
+                                        <div className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center gap-2 text-white">
+                                          <div className="w-12 h-12 rounded-full bg-purple-600/90 text-white flex items-center justify-center shadow-lg">
+                                            <Film className="w-6 h-6" />
+                                          </div>
+                                          <span className="text-xs font-semibold bg-black/60 px-2.5 py-1 rounded-full backdrop-blur-xs">
+                                            동영상 스트림 준비됨 ({item.resolution || '720p HD'})
+                                          </span>
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <div className="w-full h-[240px] bg-slate-900/5 flex items-center justify-center p-1">
+                                        <img
+                                          src={item.previewUrl}
+                                          alt={item.label || `슬라이드 #${slideNum} 사진`}
+                                          className="max-w-full max-h-[230px] object-contain rounded-lg shadow-2xs"
+                                          loading="lazy"
+                                        />
+                                      </div>
+                                    )
+                                  ) : (
+                                    <div className="w-full h-[180px] flex flex-col items-center justify-center text-slate-400 gap-2 bg-slate-50">
+                                      {item.type === 'video' ? (
+                                        <Film className="w-8 h-8 text-purple-400" />
+                                      ) : (
+                                        <ImageIcon className="w-8 h-8 text-blue-400" />
+                                      )}
+                                      <span className="text-xs font-medium text-slate-500">
+                                        {item.label || '미디어 미리보기'}
+                                      </span>
+                                    </div>
+                                  )}
+                                </div>
+
+                                {/* 3. Media Metadata & Quality Options */}
+                                <div className="bg-slate-50/70 rounded-xl p-3 border border-slate-200/70 space-y-2.5 text-xs">
+                                  <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-slate-500 font-medium">해상도 / 규격:</span>
+                                      <span className="font-semibold text-slate-800 bg-white px-2 py-0.5 rounded border border-slate-200">
+                                        {item.resolution || (item.width && item.height ? `${item.width}×${item.height}` : '표준 화질')}
+                                      </span>
+                                    </div>
+
+                                    <div className="flex items-center gap-2 text-slate-500">
+                                      <span>형식:</span>
+                                      <span className="font-mono text-slate-700 bg-white px-1.5 py-0.5 rounded border border-slate-200 text-[11px]">
+                                        {item.type === 'video' ? 'video/mp4' : 'image/jpeg'}
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  {/* Quality selector dropdown when multiple streams exist */}
+                                  {item.type === 'video' && item.qualityOptions && item.qualityOptions.length > 1 && (
+                                    <div className="pt-2 border-t border-slate-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                                      <label htmlFor={`quality-select-${idx}`} className="font-semibold text-slate-700 text-[11px] shrink-0">
+                                        다운로드 화질 선택:
+                                      </label>
+                                      <select
+                                        id={`quality-select-${idx}`}
+                                        value={selectedQualityByItem[idx] || item.qualityOptions[0].id}
+                                        onChange={(e) =>
+                                          setSelectedQualityByItem((prev) => ({ ...prev, [idx]: e.target.value }))
+                                        }
+                                        disabled={isDownloadingThis || isBatchDownloading}
+                                        className="bg-white border border-slate-300 text-slate-800 text-xs rounded-lg px-2.5 py-1 focus:ring-2 focus:ring-purple-500 outline-none cursor-pointer"
+                                      >
+                                        {item.qualityOptions.map((opt) => (
+                                          <option key={opt.id} value={opt.id}>
+                                            {opt.label} ({opt.resolution})
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                  )}
+                                </div>
+
+                                {/* 4. Individual Dedicated Download Button */}
+                                <div>
+                                  <button
+                                    type="button"
+                                    id={`download-btn-${itemUniqueKey}`}
+                                    onClick={() => handleFileDownload(item, idx)}
+                                    disabled={isDownloadingThis || isBatchDownloading}
+                                    className={`w-full py-2.5 px-4 rounded-xl text-xs sm:text-sm font-bold text-white transition-all flex items-center justify-center gap-2 cursor-pointer shadow-xs disabled:opacity-60 disabled:cursor-not-allowed ${
+                                      isCompletedThis
+                                        ? 'bg-emerald-600 hover:bg-emerald-700'
+                                        : isStartedThis
+                                        ? 'bg-amber-600 hover:bg-amber-700'
+                                        : isErrorThis
+                                        ? 'bg-rose-600 hover:bg-rose-700'
+                                        : 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700'
+                                    }`}
+                                  >
+                                    {isDownloadingThis ? (
+                                      <>
+                                        <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                                        <span>항목 #{slideNum} 다운로드 처리 중...</span>
+                                      </>
+                                    ) : isCompletedThis ? (
+                                      <>
+                                        <Check className="w-4 h-4 text-white shrink-0" />
+                                        <span>항목 #{slideNum} 다운로드 완료!</span>
+                                      </>
+                                    ) : isStartedThis ? (
+                                      <>
+                                        <ExternalLink className="w-4 h-4 text-white shrink-0" />
+                                        <span>항목 #{slideNum} 브라우저 다운로드 요청됨 (확인 불가)</span>
+                                      </>
+                                    ) : isErrorThis ? (
+                                      <>
+                                        <AlertCircle className="w-4 h-4 text-white shrink-0" />
+                                        <span>항목 #{slideNum} 다시 시도</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Download className="w-4 h-4 shrink-0" />
+                                        <span>
+                                          항목 #{slideNum} 개별 다운로드 ({item.type === 'video' ? 'MP4' : 'JPG'})
+                                        </span>
+                                      </>
+                                    )}
+                                  </button>
+
+                                  {isStartedThis && (
+                                    <p className="text-[11px] text-amber-700 text-center mt-1.5 flex items-center justify-center gap-1">
+                                      <AlertCircle className="w-3 h-3 shrink-0" />
+                                      <span>브라우저 외부 저장 완료 여부를 확인할 수 없습니다. 미저장 시 다시 시도해 주세요.</span>
+                                    </p>
+                                  )}
+
+                                  {isErrorThis && currentError && (
+                                    <p className="text-[11px] text-rose-600 text-center mt-1.5 flex items-center justify-center gap-1">
+                                      <AlertCircle className="w-3 h-3 shrink-0" />
+                                      <span>{currentError}</span>
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
 
                       {/* Video explanation if only photo was returned for a video/reel */}

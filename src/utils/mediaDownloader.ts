@@ -5,10 +5,9 @@
  */
 
 export const ALLOWED_HOST_PATTERNS = [
-  // Official Instagram & Threads CDN hosts
-  /^scontent(?:-[a-zA-Z0-9-]+)*\.(?:cdninstagram\.com)$/i,
-  /^scontent(?:\.[a-zA-Z0-9-]+)*\.(?:fbcdn\.net)$/i,
-  /^(?:static|video)[a-zA-Z0-9-]*\.cdninstagram\.com$/i,
+  // Official Instagram & Threads CDN hosts (scontent, video, static on cdninstagram.com and fbcdn.net)
+  /^(?:scontent|video|static)(?:-[a-zA-Z0-9]+)*(?:\.[a-zA-Z0-9-]+)*\.(?:cdninstagram\.com)$/i,
+  /^(?:scontent|video|static)(?:-[a-zA-Z0-9]+)*(?:\.[a-zA-Z0-9-]+)*\.(?:fbcdn\.net)$/i,
 
   // Official TikTok CDN hosts & play redirect endpoints
   /^(?:[a-zA-Z0-9-]+\.)*tiktokcdn(?:-[a-zA-Z0-9-]+)*\.com$/i,

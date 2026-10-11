@@ -254,18 +254,33 @@ export function parseCarouselFromEmbed(
     const carouselMediaList: ExtractedMedia[] = [];
 
     parsed.edges.forEach((edge, idx) => {
-      const node = edge?.node;
+      const node = edge?.node as any;
       if (!node) return;
 
       const slideNum = idx + 1;
-      const isVideo = Boolean(node.is_video && node.video_url);
+      const isVideo = Boolean(node.is_video);
 
-      if (isVideo && node.video_url) {
-        const cleanVideoUrl = node.video_url.replace(/\\\//g, '/').replace(/\\/g, '');
+      // Resolve video URL from video_url or video_resources
+      let rawVideoUrl: string | undefined = node.video_url;
+      if (!rawVideoUrl && Array.isArray(node.video_resources) && node.video_resources.length > 0) {
+        rawVideoUrl = node.video_resources[node.video_resources.length - 1]?.src;
+      }
+
+      // Resolve display/poster image URL from display_url or display_resources
+      let rawImageUrl: string | undefined = node.display_url;
+      if (!rawImageUrl && Array.isArray(node.display_resources) && node.display_resources.length > 0) {
+        rawImageUrl = node.display_resources[node.display_resources.length - 1]?.src;
+      }
+
+      if (isVideo && rawVideoUrl) {
+        const cleanVideoUrl = rawVideoUrl
+          .replace(/\\\//g, '/')
+          .replace(/\\/g, '')
+          .replace(/&amp;/g, '&');
         const hostCheck = isAllowedMediaHost(cleanVideoUrl);
         if (hostCheck.allowed) {
-          const cleanPosterUrl = node.display_url
-            ? node.display_url.replace(/\\\//g, '/').replace(/\\/g, '')
+          const cleanPosterUrl = rawImageUrl
+            ? rawImageUrl.replace(/\\\//g, '/').replace(/\\/g, '').replace(/&amp;/g, '&')
             : cleanVideoUrl;
           const dims = node.dimensions;
           const res = dims?.width && dims?.height
@@ -274,7 +289,7 @@ export function parseCarouselFromEmbed(
           const filename = `instagram_${shortcode}_slide_${slideNum}.mp4`;
 
           carouselMediaList.push({
-            id: node.id || `slide_${slideNum}_video`,
+            id: `instagram_${shortcode}_slide_${slideNum}_video${node.id ? `_${node.id}` : ''}`,
             slideIndex: slideNum,
             type: 'video',
             url: cleanVideoUrl,
@@ -301,8 +316,11 @@ export function parseCarouselFromEmbed(
             ],
           });
         }
-      } else if (node.display_url) {
-        const cleanImgUrl = node.display_url.replace(/\\\//g, '/').replace(/\\/g, '');
+      } else if (rawImageUrl) {
+        const cleanImgUrl = rawImageUrl
+          .replace(/\\\//g, '/')
+          .replace(/\\/g, '')
+          .replace(/&amp;/g, '&');
         const hostCheck = isAllowedMediaHost(cleanImgUrl);
         if (hostCheck.allowed) {
           const dims = node.dimensions;
@@ -312,7 +330,7 @@ export function parseCarouselFromEmbed(
           const filename = `instagram_${shortcode}_slide_${slideNum}.jpg`;
 
           carouselMediaList.push({
-            id: node.id || `slide_${slideNum}_photo`,
+            id: `instagram_${shortcode}_slide_${slideNum}_photo${node.id ? `_${node.id}` : ''}`,
             slideIndex: slideNum,
             type: 'image',
             url: cleanImgUrl,
@@ -321,7 +339,9 @@ export function parseCarouselFromEmbed(
             resolution: res,
             mimeType: 'image/jpeg',
             verified: true,
-            label: `Slide ${slideNum} (Photo .jpg)`,
+            label: isVideo
+              ? `Slide ${slideNum} (Video Poster / Photo .jpg)`
+              : `Slide ${slideNum} (Photo .jpg)`,
             width: dims?.width,
             height: dims?.height,
           });

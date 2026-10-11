@@ -255,7 +255,7 @@ export async function extractTiktokMedia(
           const filename = `tiktok_${shortcode}_slide_${slideNum}.jpg`;
 
           mediaList.push({
-            id: `slide_${slideNum}_photo`,
+            id: `tiktok_${shortcode}_slide_${slideNum}_photo`,
             slideIndex: slideNum,
             type: 'image',
             url: candidateUrl,

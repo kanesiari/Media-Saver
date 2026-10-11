@@ -149,7 +149,7 @@ export async function extractThreadsMedia(
             const poster = item.image_versions2?.candidates?.[0]?.url;
 
             mediaList.push({
-              id: `slide_${slideNum}_video`,
+              id: `threads_${shortcode}_slide_${slideNum}_video`,
               slideIndex: slideNum,
               type: 'video',
               url: videoUrl,
@@ -187,7 +187,7 @@ export async function extractThreadsMedia(
             const resolution = width && height ? `Photo (${width}×${height})` : 'Original Photo';
 
             mediaList.push({
-              id: `slide_${slideNum}_photo`,
+              id: `threads_${shortcode}_slide_${slideNum}_photo`,
               slideIndex: slideNum,
               type: 'image',
               url: imgUrl,
